@@ -4,6 +4,6 @@ import Page from '@/app/page'
 describe('Page', () => {
   it('renders the page content', () => {
     render(<Page />)
-    expect(screen.getByRole('heading', { name: 'Hackathon team 5' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'friluftskompis' })).toBeInTheDocument()
   })
 })
