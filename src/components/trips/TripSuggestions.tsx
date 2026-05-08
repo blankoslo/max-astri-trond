@@ -55,7 +55,7 @@ const DURATIONS: { label: string; value: number | null }[] = [
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
 function fmtDistance(m: number | null): string | null {
-  if (!m) return null;
+  if (m == null) return null;
   return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
 }
 
@@ -231,6 +231,7 @@ export default function TripSuggestions() {
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // season is derived from new Date() each render — adding it to deps would re-trigger on every render
   }, [filters]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────────

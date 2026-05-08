@@ -52,10 +52,15 @@ export async function GET(request: Request) {
   const areaIdRaw = searchParams.get("areaId");
   const gradingRaw = searchParams.get("grading")?.toUpperCase();
   const activityTypeRaw = searchParams.get("activityType")?.toUpperCase();
-  const minDistance = searchParams.get("minDistance") ? Number(searchParams.get("minDistance")) : undefined;
-  const maxDistance = searchParams.get("maxDistance") ? Number(searchParams.get("maxDistance")) : undefined;
-  const maxHours = searchParams.get("maxHours") ? Number(searchParams.get("maxHours")) : undefined;
-  const limit = searchParams.get("limit") ? Math.min(Number(searchParams.get("limit")), 100) : 20;
+  const minDistanceRaw = searchParams.get("minDistance");
+  const maxDistanceRaw = searchParams.get("maxDistance");
+  const maxHoursRaw = searchParams.get("maxHours");
+  const limitRaw = searchParams.get("limit");
+
+  const minDistance = minDistanceRaw != null ? Number(minDistanceRaw) : undefined;
+  const maxDistance = maxDistanceRaw != null ? Number(maxDistanceRaw) : undefined;
+  const maxHours = maxHoursRaw != null ? Number(maxHoursRaw) : undefined;
+  const limit = limitRaw != null ? Math.min(Number(limitRaw), 100) : 20;
   const after = searchParams.get("after") ?? undefined;
 
   // Nearby mode
@@ -77,6 +82,15 @@ export async function GET(request: Request) {
       { status: 400 }
     );
   }
+
+  if (minDistanceRaw != null && isNaN(minDistance!))
+    return NextResponse.json({ error: "minDistance must be a number" }, { status: 400 });
+  if (maxDistanceRaw != null && isNaN(maxDistance!))
+    return NextResponse.json({ error: "maxDistance must be a number" }, { status: 400 });
+  if (maxHoursRaw != null && isNaN(maxHours!))
+    return NextResponse.json({ error: "maxHours must be a number" }, { status: 400 });
+  if (limitRaw != null && isNaN(limit))
+    return NextResponse.json({ error: "limit must be a number" }, { status: 400 });
 
   try {
     // ── Nearby mode ───────────────────────────────────────────────────────────

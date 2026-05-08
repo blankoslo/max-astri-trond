@@ -16,9 +16,16 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Missing z/x/y", { status: 400 });
   }
 
+  const zi = parseInt(z, 10);
+  const xi = parseInt(x, 10);
+  const yi = parseInt(y, 10);
+  if (isNaN(zi) || isNaN(xi) || isNaN(yi) || zi < 0 || xi < 0 || yi < 0 || zi > 22) {
+    return new NextResponse("Invalid z/x/y", { status: 400 });
+  }
+
   const upstream =
     `https://opencache.statkart.no/gatekeeper/gk/gk.open_gmaps` +
-    `?layers=topo4&zoom=${z}&x=${x}&y=${y}`;
+    `?layers=topo4&zoom=${zi}&x=${xi}&y=${yi}`;
 
   try {
     const res = await fetch(upstream, {
@@ -33,7 +40,7 @@ export async function GET(req: NextRequest) {
 
     if (!res.ok) {
       // Fall back to OpenStreetMap if Kartverket is unavailable
-      const osmUrl = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+      const osmUrl = `https://tile.openstreetmap.org/${zi}/${xi}/${yi}.png`;
       const osm = await fetch(osmUrl, {
         headers: {
           "User-Agent": "Friluftskompis/0.1 (friluftskompis.no)",

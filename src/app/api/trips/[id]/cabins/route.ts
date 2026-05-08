@@ -17,7 +17,7 @@
  *   GET /api/trips/112630/cabins?interval=2000&radius=3000
  *
  * Response:
- *   { tripId, tripName, samplePoints, cabins: UtnoCabin[] }
+ *   { tripId, tripName, tripDistanceMetres, sampleIntervalMetres, searchRadiusMetres, totalCabins, cabins: UtnoCabin[] }
  */
 
 import { NextResponse } from "next/server";
@@ -35,8 +35,17 @@ export async function GET(
   }
 
   const { searchParams } = new URL(request.url);
-  const interval = searchParams.get("interval") ? Number(searchParams.get("interval")) : 3_000;
-  const radius = searchParams.get("radius") ? Number(searchParams.get("radius")) : 2_000;
+  const intervalRaw = searchParams.get("interval");
+  const radiusRaw = searchParams.get("radius");
+  const interval = intervalRaw ? Number(intervalRaw) : 3_000;
+  const radius = radiusRaw ? Number(radiusRaw) : 2_000;
+
+  if (isNaN(interval) || interval < 100) {
+    return NextResponse.json({ error: "interval must be a number ≥ 100" }, { status: 400 });
+  }
+  if (isNaN(radius) || radius < 100) {
+    return NextResponse.json({ error: "radius must be a number ≥ 100" }, { status: 400 });
+  }
 
   try {
     const trip = await gqlTripById(tripId);
@@ -59,18 +68,12 @@ export async function GET(
       searchRadiusMetres: radius,
     });
 
-    // Rough sample point count for transparency
-    const sampleCount = Math.ceil(
-      (trip.distance ?? coords.length * 10) / interval
-    ) + 1;
-
     return NextResponse.json({
       tripId,
       tripName: trip.name,
       tripDistanceMetres: trip.distance,
       sampleIntervalMetres: interval,
       searchRadiusMetres: radius,
-      samplePoints: sampleCount,
       totalCabins: cabins.length,
       cabins,
     });

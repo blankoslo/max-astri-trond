@@ -1,22 +1,9 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import Map from "@/components/map/Map";
 import SearchBar from "@/components/search/SearchBar";
 import PackingListPanel from "@/components/packing/PackingListPanel";
 import TripSuggestions from "@/components/trips/TripSuggestions";
-
-// Map must be client-only (no SSR)
-const Map = dynamic(() => import("@/components/map/Map"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-slate-100">
-      <div className="flex flex-col items-center gap-3 text-slate-500">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm font-medium">Laster kart…</span>
-      </div>
-    </div>
-  ),
-});
 
 export default function Home() {
   return (

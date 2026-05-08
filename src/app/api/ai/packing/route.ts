@@ -26,9 +26,13 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as TripInput;
     if (!body.destinationName) throw new Error("missing destinationName");
+    if (!Number.isInteger(body.nights) || body.nights < 1 || body.nights > 30)
+      throw new Error("nights must be 1–30");
+    if (!Number.isInteger(body.groupSize) || body.groupSize < 1 || body.groupSize > 50)
+      throw new Error("groupSize must be 1–50");
     tripInput = body;
-  } catch {
-    return Response.json({ error: "Invalid request body" }, { status: 400 });
+  } catch (e) {
+    return Response.json({ error: e instanceof Error ? e.message : "Invalid request body" }, { status: 400 });
   }
 
   const anthropic = createAnthropic({ apiKey });
@@ -44,8 +48,15 @@ export async function POST(request: Request) {
 
     const cleaned = stripMarkdown(text);
 
-    // Validate before sending to client
-    const parsed = PackingListSchema.safeParse(JSON.parse(cleaned));
+    let rawJson: unknown;
+    try {
+      rawJson = JSON.parse(cleaned);
+    } catch {
+      console.error("Packing JSON parse failed. Raw output:", cleaned);
+      return Response.json({ error: "AI returned malformed JSON" }, { status: 500 });
+    }
+
+    const parsed = PackingListSchema.safeParse(rawJson);
     if (!parsed.success) {
       console.error("Packing schema validation failed:", parsed.error);
       return Response.json(

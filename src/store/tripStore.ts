@@ -37,7 +37,6 @@ interface TripStore {
   packingLoading: boolean;
   packingError: string | null;
   setPackingItems: (items: PackingItem[]) => void;
-  appendPackingItem: (item: PackingItem) => void;
   setPackingLoading: (v: boolean) => void;
   setPackingError: (msg: string | null) => void;
   clearPacking: () => void;
@@ -77,8 +76,6 @@ export const useTripStore = create<TripStore>((set) => ({
   packingLoading: false,
   packingError: null,
   setPackingItems: (items) => set({ packingItems: items }),
-  appendPackingItem: (item) =>
-    set((s) => ({ packingItems: [...s.packingItems, item] })),
   setPackingLoading: (v) => set({ packingLoading: v }),
   setPackingError: (msg) => set({ packingError: msg }),
   clearPacking: () =>

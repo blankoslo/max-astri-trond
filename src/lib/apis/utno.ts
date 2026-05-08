@@ -255,7 +255,8 @@ function sampleRoutePoints(
     }
   }
   const last = coords[coords.length - 1];
-  if (sampled[sampled.length - 1] !== last) sampled.push(last);
+  const prev = sampled[sampled.length - 1];
+  if (prev[0] !== last[0] || prev[1] !== last[1]) sampled.push(last);
   return sampled;
 }
 
@@ -375,11 +376,14 @@ export async function autocomplete(query: string): Promise<AutocompleteResult[]>
 
   const all = [...data.search.prioritizedResult, ...data.search.result];
 
-  return all.map((raw) => {
+  return all.flatMap((raw) => {
     // Format: {type};{id};{lon,lat};{name};{category};{grading}
-    const [typeCode, id, coords, name, category, grading] = raw.split(";");
+    const parts = raw.split(";");
+    if (parts.length < 4) return []; // skip malformed entries
+    const [typeCode, id, coords, name, category, grading] = parts;
     const [lng, lat] = (coords ?? "0,0").split(",").map(Number);
+    if (isNaN(lng) || isNaN(lat)) return [];
     const type = typeCode === "g" ? "trip" : typeCode === "d" ? "cabin" : "unknown";
-    return { type, id: id ?? "", name: name ?? "", lng, lat, category: category ?? "", grading: grading ?? "" };
+    return [{ type, id: id ?? "", name: name ?? "", lng, lat, category: category ?? "", grading: grading ?? "" }];
   });
 }

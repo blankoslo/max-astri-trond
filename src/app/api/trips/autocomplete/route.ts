@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const q = searchParams.get("q") ?? "";
 
   if (!q.trim()) {
-    return NextResponse.json({ results: [] });
+    return NextResponse.json({ error: "q is required" }, { status: 400 });
   }
 
   try {

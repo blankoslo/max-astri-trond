@@ -77,7 +77,7 @@ export async function fetchWeather(
       `https://api.met.no/weatherapi/locationforecast/2.0/compact?${params.toString()}`,
       {
         headers: {
-          "User-Agent": "Friluftskompis/0.1 max.torre.schau@gmail.com",
+          "User-Agent": "Friluftskompis/0.1 kontakt@friluftskompis.no",
         },
       }
     );

@@ -35,7 +35,7 @@ export default function MapInner() {
             tiles: [TOPO_TILES],
             tileSize: 256,
             attribution:
-              'Tiles &copy; <a href="https://www.esri.com">Esri</a> | © <a href="https://www.kartverket.no">Kartverket</a>',
+              'Tiles &copy; <a href="https://www.esri.com">Esri</a>',
           },
         },
         layers: [
