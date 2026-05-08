@@ -129,3 +129,7 @@ export const useTripStore = create<TripStore>((set) => ({
   clearPacking: () =>
     set({ packingItems: [], packingLoading: false, packingError: null }),
 }));
+
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+  (window as unknown as Record<string, unknown>).__tripStore = useTripStore;
+}

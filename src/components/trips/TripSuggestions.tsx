@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { UtnoTrip, TripGrading, TripActivityType } from "@/types";
 import type { AutocompleteResult } from "@/lib/apis/utno";
+import { useTripStore } from "@/store/tripStore";
 
 // ─── Season ───────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,7 @@ function Chip({
 export default function TripSuggestions() {
   const router = useRouter();
   const season = getSeason();
+  const { setMapTarget, setSelectedPlace } = useTripStore();
 
   const [query, setQuery]             = useState("");
   const [suggestions, setSuggestions] = useState<AutocompleteResult[]>([]);
@@ -150,6 +152,7 @@ export default function TripSuggestions() {
       setSuggestions([]); setSugOpen(false);
       return;
     }
+    if (v.trim().length < 3) return;
     debounceRef.current = setTimeout(() => fetchSuggestions(v), 280);
   };
 
@@ -165,6 +168,8 @@ export default function TripSuggestions() {
     } else {
       setQuery(s.name);
       setFilters((f) => ({ ...f, area: s.name, areaId: null }));
+      setSelectedPlace({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: s.category });
+      setMapTarget({ lat: s.lat, lng: s.lng, zoom: 11 });
     }
   };
 
@@ -228,6 +233,7 @@ export default function TripSuggestions() {
               d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
           </svg>
           <input
+            data-testid="search-input"
             type="text"
             value={query}
             onChange={handleQueryChange}
@@ -260,10 +266,16 @@ export default function TripSuggestions() {
 
           {/* Autocomplete dropdown */}
           {sugOpen && suggestions.length > 0 && (
-            <div className="absolute left-0 right-0 mt-1 rounded-xl shadow-xl overflow-hidden z-50"
+            <div
+              data-testid="autocomplete-dropdown"
+              className="absolute left-0 right-0 mt-1 rounded-xl shadow-xl overflow-hidden z-50"
               style={{ background: "white", border: "1px solid var(--color-border-default)" }}>
               {suggestions.map((s) => (
-                <button key={`${s.type}-${s.id}`} onClick={() => pickSuggestion(s)}
+                <button
+                  key={`${s.type}-${s.id}`}
+                  data-testid="autocomplete-result"
+                  data-result-type={s.type}
+                  onClick={() => pickSuggestion(s)}
                   className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors border-b last:border-b-0"
                   style={{ borderColor: "var(--color-border-default)" }}>
                   <span className="text-lg shrink-0">{s.type === "trip" ? "🥾" : "📍"}</span>
@@ -272,7 +284,7 @@ export default function TripSuggestions() {
                       {s.name}
                     </p>
                     <p className="text-xs" style={{ color: "var(--color-neutral-300)" }}>
-                      {s.type === "trip" ? "Tur" : "Område"}{s.category ? ` · ${s.category}` : ""}
+                      {s.type === "trip" ? "Tur" : s.type === "cabin" ? "Hytte" : "Område"}{s.category ? ` · ${s.category}` : ""}
                     </p>
                   </div>
                   {s.type === "trip" && (

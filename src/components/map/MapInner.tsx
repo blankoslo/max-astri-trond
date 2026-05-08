@@ -231,6 +231,7 @@ export default function MapInner() {
                  "circle-stroke-width": 2.5, "circle-stroke-color": "#ffffff" } });
 
       mapReadyRef.current = true;
+      containerRef.current?.setAttribute("data-map-ready", "true");
 
       if (pendingTripRef.current) {
         drawTrip(map, pendingTripRef.current);
