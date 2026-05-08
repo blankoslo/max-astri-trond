@@ -3,236 +3,357 @@
 /**
  * OfflineDownloadButton (F8 — T1)
  *
- * Allows a user to download a trip for offline use:
- *  1. Saves trip + cabin + stage data to IndexedDB
- *  2. Tells the Service Worker to pre-cache all map tiles for the bounding box
- *
- * Shows progress during download, and a "Naviger offline →" link when done.
+ * Generates a static PDF turguide and auto-downloads it.
+ * Includes: route map (canvas), participants, stages, cabins, emergency numbers.
  */
 
-import { useState, useEffect, useCallback } from "react";
-import { saveOfflineTrip, loadOfflineTrip, buildTileUrls, deleteOfflineTrip } from "@/lib/offlineStorage";
-import type { OfflineStage } from "@/lib/offlineStorage";
+import { useState, useCallback } from "react";
 import type { UtnoTrip, UtnoCabin } from "@/types";
+import type { OfflineStage } from "@/lib/offlineTypes";
 
-type DownloadState = "idle" | "saving" | "tiles" | "done" | "error";
+interface Participant { name: string }
 
 interface Props {
-  tripId: string;
   trip: UtnoTrip;
   cabins: UtnoCabin[];
   stages: OfflineStage[];
+  participants: Participant[];
 }
 
-export default function OfflineDownloadButton({ tripId, trip, cabins, stages }: Props) {
-  const [state,    setState]    = useState<DownloadState>("idle");
-  const [progress, setProgress] = useState(0); // 0–100
-  const [tilesDone, setTilesDone] = useState(0);
-  const [tilesTotal, setTilesTotal] = useState(0);
-  const [alreadyDownloaded, setAlreadyDownloaded] = useState(false);
+// ── Route map canvas ──────────────────────────────────────────────────────────
 
-  // Check if this trip is already cached
-  useEffect(() => {
-    loadOfflineTrip(tripId)
-      .then((t) => setAlreadyDownloaded(t !== null))
-      .catch(() => {});
-  }, [tripId]);
+function buildRouteCanvas(trip: UtnoTrip, cabins: UtnoCabin[]): string | null {
+  const coords = trip.geojson?.coordinates;
+  if (!coords || coords.length < 2) return null;
+
+  const W = 700, H = 300;
+  const canvas = document.createElement("canvas");
+  canvas.width  = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Bounding box + padding
+  const lons = coords.map((c) => c[0]);
+  const lats = coords.map((c) => c[1]);
+  const pad      = 0.15;
+  const lonRange = (Math.max(...lons) - Math.min(...lons)) || 0.005;
+  const latRange = (Math.max(...lats) - Math.min(...lats)) || 0.005;
+  const minLon = Math.min(...lons) - lonRange * pad;
+  const maxLon = Math.max(...lons) + lonRange * pad;
+  const minLat = Math.min(...lats) - latRange * pad;
+  const maxLat = Math.max(...lats) + latRange * pad;
+
+  const proj = (lon: number, lat: number): [number, number] => [
+    ((lon - minLon) / (maxLon - minLon)) * W,
+    (1 - (lat - minLat) / (maxLat - minLat)) * H,
+  ];
+
+  // Background
+  ctx.fillStyle = "#eef3ee";
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid
+  ctx.strokeStyle = "#dde9dd";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath(); ctx.moveTo((W / 4) * i, 0); ctx.lineTo((W / 4) * i, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, (H / 4) * i); ctx.lineTo(W, (H / 4) * i); ctx.stroke();
+  }
+
+  // Route shadow
+  ctx.beginPath();
+  const [sx0, sy0] = proj(coords[0][0], coords[0][1]);
+  ctx.moveTo(sx0, sy0 + 3);
+  for (let i = 1; i < coords.length; i++) {
+    const [x, y] = proj(coords[i][0], coords[i][1]);
+    ctx.lineTo(x, y + 3);
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.12)";
+  ctx.lineWidth = 8; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.stroke();
+
+  // Route line
+  ctx.beginPath();
+  const [sx, sy] = proj(coords[0][0], coords[0][1]);
+  ctx.moveTo(sx, sy);
+  for (let i = 1; i < coords.length; i++) {
+    const [x, y] = proj(coords[i][0], coords[i][1]);
+    ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = "#4f59fb";
+  ctx.lineWidth = 5; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.stroke();
+
+  // Cabin dots
+  for (const cabin of cabins) {
+    if (!cabin.geojson?.coordinates) continue;
+    const [clon, clat] = cabin.geojson.coordinates;
+    const [cx, cy] = proj(clon, clat);
+    ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff"; ctx.fill();
+    ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // Start (green)
+  const [ex, ey] = proj(coords[0][0], coords[0][1]);
+  ctx.beginPath(); ctx.arc(ex, ey, 9, 0, Math.PI * 2);
+  ctx.fillStyle = "#0f8402"; ctx.fill();
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5; ctx.stroke();
+
+  // End (red)
+  const last = coords[coords.length - 1];
+  const [lx, ly] = proj(last[0], last[1]);
+  ctx.beginPath(); ctx.arc(lx, ly, 9, 0, Math.PI * 2);
+  ctx.fillStyle = "#bf0000"; ctx.fill();
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2.5; ctx.stroke();
+
+  // Border
+  ctx.strokeStyle = "#c5d5c5"; ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+
+  return canvas.toDataURL("image/png");
+}
+
+// ── PDF builder ───────────────────────────────────────────────────────────────
+
+export default function OfflineDownloadButton({ trip, cabins, stages, participants }: Props) {
+  const [loading, setLoading] = useState(false);
 
   const handleDownload = useCallback(async () => {
-    setState("saving");
-    setProgress(0);
-
+    setLoading(true);
     try {
-      // ── 1. Compute bounding box ─────────────────────────────────────────
-      const coords = trip.geojson?.coordinates ?? [];
-      if (coords.length < 2) throw new Error("Ingen rutedata");
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
 
-      const lons = coords.map((c) => c[0]);
-      const lats = coords.map((c) => c[1]);
-      const minLng = Math.min(...lons);
-      const maxLng = Math.max(...lons);
-      const minLat = Math.min(...lats);
-      const maxLat = Math.max(...lats);
+      const pageW  = doc.internal.pageSize.getWidth();
+      const pageH  = doc.internal.pageSize.getHeight();
+      const margin = 18;
+      const colW   = pageW - margin * 2;
+      let   y      = margin;
 
-      // ── 2. Build tile URL list ──────────────────────────────────────────
-      // z10–z13: good balance of coverage vs storage (~300–600 tiles typical)
-      const tileUrls = buildTileUrls(minLng, minLat, maxLng, maxLat, 10, 13);
-      setTilesTotal(tileUrls.length);
+      const LINE_H = 6.5;
+      const GAP_S  = 3;
+      const GAP_M  = 8;
 
-      // ── 3. Save trip data to IndexedDB ─────────────────────────────────
-      await saveOfflineTrip({
-        id: tripId,
-        trip,
-        cabins,
-        stages,
-        downloadedAt: new Date().toISOString(),
-        tileCount: tileUrls.length,
-      });
+      // ── Header stripe ────────────────────────────────────────────────────
+      doc.setFillColor(79, 89, 251);
+      doc.rect(0, 0, pageW, 13, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(255, 255, 255);
+      doc.text("Friluftskompis - Turguide", margin, 9);
+      y = 21;
 
-      // ── 4. Pre-cache tiles via Service Worker ──────────────────────────
-      if (!("serviceWorker" in navigator)) throw new Error("Service Worker ikke støttet");
+      // ── Trip title ───────────────────────────────────────────────────────
+      doc.setTextColor(25, 25, 35);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(17);
+      const titleLines = doc.splitTextToSize(trip.name, colW) as string[];
+      doc.text(titleLines, margin, y);
+      y += titleLines.length * 7 + GAP_S;
 
-      const registration = await navigator.serviceWorker.ready;
-      if (!registration.active) throw new Error("Service Worker ikke aktiv");
+      // ── Meta row ─────────────────────────────────────────────────────────
+      const meta: string[] = [];
+      if (trip.distance)      meta.push(`${(trip.distance / 1000).toFixed(1)} km`);
+      if (trip.durationDays)  meta.push(`${trip.durationDays} ${trip.durationDays === 1 ? "dag" : "dager"}`);
+      if (trip.elevationGain) meta.push(`+${Math.round(trip.elevationGain / 10) * 10} hm`);
+      if (trip.grading)       meta.push(gradingLabel(trip.grading));
+      const area = trip.areas[0]?.name ?? trip.counties[0]?.name;
+      if (area) meta.push(area);
 
-      setState("tiles");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 120);
+      if (meta.length) { doc.text(meta.join("  -  "), margin, y); y += LINE_H; }
+      y += GAP_S;
 
-      await new Promise<void>((resolve, reject) => {
-        const channel = new MessageChannel();
+      // ── Route map ─────────────────────────────────────────────────────────
+      const mapImg = buildRouteCanvas(trip, cabins);
+      if (mapImg) {
+        const mapH = Math.round(colW * (300 / 700)); // keep 700:300 aspect
+        doc.addImage(mapImg, "PNG", margin, y, colW, mapH);
+        y += mapH + GAP_M;
+      }
 
-        channel.port1.onmessage = (e) => {
-          if (e.data?.type === "TILE_PROGRESS") {
-            const { done, total, complete } = e.data;
-            setTilesDone(done);
-            setTilesTotal(total);
-            // Tile progress = 50–100 % of overall progress
-            setProgress(Math.round(50 + (done / total) * 50));
-            if (complete) {
-              channel.port1.close();
-              resolve();
-            }
+      // ── Divider ───────────────────────────────────────────────────────────
+      doc.setDrawColor(220, 220, 232);
+      doc.setLineWidth(0.4);
+      doc.line(margin, y, pageW - margin, y);
+      y += GAP_M;
+
+      // ── Deltakere ─────────────────────────────────────────────────────────
+      if (participants.length > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(45, 45, 58);
+        doc.text("Deltakere", margin, y);
+        y += LINE_H + GAP_S;
+
+        // Names in 2-column grid
+        const half = Math.ceil(participants.length / 2);
+        const col2X = margin + colW / 2;
+
+        for (let i = 0; i < half; i++) {
+          if (y > 270) { doc.addPage(); y = margin; }
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(10);
+          doc.setTextColor(50, 50, 65);
+
+          doc.text(`- ${participants[i].name}`, margin, y);
+          if (participants[i + half]) {
+            doc.text(`- ${participants[i + half].name}`, col2X, y);
           }
-        };
+          y += LINE_H;
+        }
+        y += GAP_M;
 
-        registration.active!.postMessage(
-          { type: "PRECACHE_TILES", urls: tileUrls },
-          [channel.port2]
-        );
+        doc.setDrawColor(220, 220, 232);
+        doc.line(margin, y, pageW - margin, y);
+        y += GAP_M;
+      }
 
-        // Fallback: resolve after 60 s if SW never completes
-        setTimeout(() => {
-          channel.port1.close();
-          resolve();
-        }, 60_000);
+      // ── Dagsetapper ───────────────────────────────────────────────────────
+      if (stages.length > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(45, 45, 58);
+        doc.text("Dagsetapper", margin, y);
+        y += LINE_H + GAP_S;
 
-        // Also listen for errors
-        channel.port1.onmessageerror = () => { channel.port1.close(); reject(new Error("SW feil")); };
-      });
+        for (const stage of stages) {
+          if (y > 268) { doc.addPage(); y = margin; }
 
-      setAlreadyDownloaded(true);
-      setState("done");
-      setProgress(100);
+          // Day badge
+          doc.setFillColor(79, 89, 251);
+          doc.roundedRect(margin, y - 4.2, 7.5, 5.5, 1.5, 1.5, "F");
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7);
+          doc.setTextColor(255, 255, 255);
+          doc.text(String(stage.day), margin + 3.75, y - 0.3, { align: "center" });
+
+          // Stage route
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.setTextColor(35, 35, 48);
+          doc.text(`${stage.startName}  >  ${stage.endName}`, margin + 10, y);
+          y += 5;
+
+          // Stage stats
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          doc.setTextColor(105, 105, 125);
+          const info = [
+            `${stage.distanceKm} km`,
+            `ca. ${stage.estimatedHours} t`,
+            stage.isOvernight ? "overnatting" : "dagstur",
+          ].join("  -  ");
+          doc.text(info, margin + 10, y);
+          y += LINE_H + GAP_S;
+        }
+        y += GAP_S;
+      }
+
+      // ── Hytter langs ruten ────────────────────────────────────────────────
+      const validCabins = cabins.filter((c) => c.name);
+      if (validCabins.length > 0) {
+        if (y > 248) { doc.addPage(); y = margin; }
+
+        doc.setDrawColor(220, 220, 232);
+        doc.line(margin, y, pageW - margin, y);
+        y += GAP_M;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.setTextColor(45, 45, 58);
+        doc.text("Hytter langs ruten", margin, y);
+        y += LINE_H + GAP_S;
+
+        for (const cabin of validCabins.slice(0, 14)) {
+          if (y > 268) { doc.addPage(); y = margin; }
+
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(10);
+          doc.setTextColor(35, 35, 48);
+          doc.text(`- ${cabin.name}`, margin, y);
+
+          const beds = (cabin.bedsStaffed ?? 0) + (cabin.bedsSelfService ?? 0) + (cabin.bedsNoService ?? 0);
+          const details: string[] = [serviceLevelLabel(cabin.serviceLevel)];
+          if (beds > 0) details.push(`${beds} senger`);
+          if (cabin.phone) details.push(`Tlf: ${cabin.phone}`);
+
+          y += 5;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          doc.setTextColor(105, 105, 125);
+          doc.text(details.join("  -  "), margin + 3, y);
+          y += LINE_H;
+        }
+        if (validCabins.length > 14) {
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 165);
+          doc.text(`... og ${validCabins.length - 14} hytter til`, margin, y);
+          y += LINE_H;
+        }
+      }
+
+      // ── Emergency footer (pinned to bottom of last page) ──────────────────
+      const totalPages = (doc.internal as unknown as { pages: unknown[] }).pages.length - 1;
+      doc.setPage(totalPages);
+      const footerY = pageH - 15;
+
+      doc.setFillColor(243, 244, 252);
+      doc.rect(margin, footerY - 5, colW, 12, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(79, 89, 251);
+      doc.text("Nodummer i Norge:", margin + 3, footerY + 0.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(55, 55, 68);
+      doc.text(
+        "Redning 110 / Politi 112 / Medisinsk 113 / Rode Kors: 800 30 570",
+        margin + 3, footerY + 5.5
+      );
+
+      // ── Save ──────────────────────────────────────────────────────────────
+      const safeName = trip.name.replace(/[^a-zA-Z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
+      doc.save(`${safeName || "tur"}-turguide.pdf`);
 
     } catch (err) {
-      console.error("[OfflineDownload]", err);
-      setState("error");
+      console.error("[TripPDF]", err);
+      alert("Kunne ikke generere PDF. Provigjen.");
+    } finally {
+      setLoading(false);
     }
-  }, [tripId, trip, cabins, stages]);
+  }, [trip, cabins, stages, participants]);
 
-  const handleDelete = useCallback(async () => {
-    try {
-      await deleteOfflineTrip(tripId);
-      setAlreadyDownloaded(false);
-      setState("idle");
-      setProgress(0);
-    } catch {
-      // ignore
-    }
-  }, [tripId]);
-
-  // ── Render ──────────────────────────────────────────────────────────────
-
-  if (state === "done" || alreadyDownloaded) {
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-sm"
-          style={{ color: "var(--color-success, #0f8402)" }}>
-          <CheckIcon />
-          <span className="font-medium">Lastet ned for offline bruk</span>
-        </div>
-
-        <div className="flex gap-2">
-          <a
-            href={`/trips/${tripId}/offline`}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
-            style={{ background: "var(--color-brand-500)", color: "white" }}
-          >
-            <MapPinIcon />
-            Naviger offline →
-          </a>
-
-          <button
-            onClick={handleDelete}
-            className="px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-80"
-            style={{
-              background: "var(--color-neutral-100, #f1f5f9)",
-              color: "var(--color-neutral-500, #64748b)",
-              border: "1px solid var(--color-border-default, #e2e8f0)",
-            }}
-            title="Slett offline-data"
-          >
-            🗑
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (state === "saving" || state === "tiles") {
-    const label = state === "saving"
-      ? "Lagrer turdata…"
-      : `Laster ned kart… ${tilesDone}/${tilesTotal} tiles`;
-
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <div
-            className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin shrink-0"
-            style={{ borderColor: "var(--color-brand-400)", borderTopColor: "transparent" }}
-          />
-          <span className="text-sm" style={{ color: "var(--color-neutral-500)" }}>
-            {label}
-          </span>
-        </div>
-
-        {/* Progress bar */}
-        <div className="w-full h-1.5 rounded-full overflow-hidden"
-          style={{ background: "var(--color-neutral-100, #f1f5f9)" }}>
-          <div
-            className="h-full rounded-full transition-all duration-300"
-            style={{
-              width: `${progress}%`,
-              background: "var(--color-brand-500)",
-            }}
-          />
-        </div>
-        <p className="text-xs text-right" style={{ color: "var(--color-neutral-400)" }}>
-          {progress}%
-        </p>
-      </div>
-    );
-  }
-
-  if (state === "error") {
-    return (
-      <div className="flex flex-col gap-2">
-        <p className="text-sm" style={{ color: "var(--color-error, #bf0000)" }}>
-          Nedlasting feilet. Prøv igjen.
-        </p>
-        <button
-          onClick={handleDownload}
-          className="w-full py-2.5 rounded-xl text-sm font-semibold hover:opacity-90"
-          style={{ background: "var(--color-neutral-100)", border: "1px solid var(--color-border-default)", color: "var(--color-neutral-600)" }}
-        >
-          Prøv igjen
-        </button>
-      </div>
-    );
-  }
-
-  // Idle
   return (
     <button
       onClick={handleDownload}
-      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
+      disabled={loading}
+      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-60"
       style={{
         background: "white",
         color: "var(--color-neutral-600)",
         border: "1.5px solid var(--color-border-default, #e2e8f0)",
       }}
     >
-      <DownloadIcon />
-      Last ned for offline bruk
+      {loading ? (
+        <>
+          <span
+            className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin shrink-0"
+            style={{ borderColor: "var(--color-brand-400)", borderTopColor: "transparent",
+              display: "inline-block" }}
+          />
+          Genererer PDF...
+        </>
+      ) : (
+        <>
+          <DownloadIcon />
+          Last ned turguide (PDF)
+        </>
+      )}
     </button>
   );
 }
@@ -241,27 +362,33 @@ export default function OfflineDownloadButton({ tripId, trip, cabins, stages }: 
 
 function DownloadIcon() {
   return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24"
+      stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round"
         d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
     </svg>
   );
 }
 
-function CheckIcon() {
-  return (
-    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
-  );
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function gradingLabel(g: string | null): string {
+  switch (g) {
+    case "EASY":       return "Enkel";
+    case "MODERATE":   return "Moderat";
+    case "TOUGH":      return "Krevende";
+    case "VERY_TOUGH": return "Meget krevende";
+    default:           return "";
+  }
 }
 
-function MapPinIcon() {
-  return (
-    <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round"
-        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
+function serviceLevelLabel(level: string | null): string {
+  switch (level) {
+    case "STAFFED":           return "Betjent";
+    case "SELF_SERVICE":      return "Selvbetjent";
+    case "NO_SERVICE":        return "Uten betjening";
+    case "EMERGENCY_SHELTER": return "Nodhytte";
+    case "RENTAL":            return "Utleie";
+    default:                  return "Hytte";
+  }
 }

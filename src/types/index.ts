@@ -105,3 +105,23 @@ export interface TripInput {
   hasKids: boolean;
   experience: "beginner" | "intermediate" | "experienced";
 }
+
+// ─── Expenses & settlement (F9 / R1) ──────────────────────────────────────────
+
+export interface Expense {
+  id: string;
+  trip_id: string;
+  payer_id: string;       // participant ID who paid
+  description: string;
+  amount: number;         // total amount in NOK øre-rounded
+  date: string;           // ISO date "YYYY-MM-DD"
+  split_among: string[];  // participant IDs who share this expense
+  created_at: string;
+}
+
+/** One debt to settle: `from` pays `amount` to `to`. */
+export interface Settlement {
+  from: string;   // participant ID
+  to: string;     // participant ID
+  amount: number; // NOK rounded to 2 decimal places
+}

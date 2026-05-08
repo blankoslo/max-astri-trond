@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import type { UtnoTrip, UtnoCabin, WeatherDay } from "@/types";
 import { useTripStore } from "@/store/tripStore";
+import { PackingListSchema } from "@/lib/ai/prompts";
 import WeatherForecast from "@/components/weather/WeatherForecast";
-import PackingListPanel from "@/components/packing/PackingListPanel";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import OfflineDownloadButton from "@/components/offline/OfflineDownloadButton";
 import InviteModal from "@/components/invite/InviteModal";
+import ExpensePanel from "@/components/expenses/ExpensePanel";
 import {
   type Participant,
   getParticipants,
@@ -198,6 +200,9 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
   const summaryFetchedForRef = useRef<string | null>(null); // avoid duplicate fetches
   const [weatherLoading, setWeatherLoading] = useState(false);
 
+  const [packingExpanded, setPackingExpanded] = useState(true);
+  const packingAbortRef = useRef<AbortController | null>(null);
+
   // ── Invite / participants ────────────────────────────────────────────────
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -205,7 +210,12 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
   const [joinName, setJoinName] = useState("");
   const [joinError, setJoinError] = useState("");
 
-  const { clearPacking, setTripInput, setSelectedPlace, openPackingPanel } = useTripStore();
+  const {
+    clearPacking,
+    packingItems, packingLoading, packingError,
+    setPackingItems, setPackingLoading, setPackingError,
+    packedItemKeys, togglePackedItem,
+  } = useTripStore();
 
   useEffect(() => { params.then(setRouteParams); }, [params]);
 
@@ -307,21 +317,45 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
       .finally(() => setDaySummariesLoading(false));
   }, [trip?.id, stages.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleGeneratePacking = useCallback(() => {
+  const handleGeneratePacking = useCallback(async () => {
     if (!trip) return;
     clearPacking();
-    setTripInput({
-      destinationName: trip.name,
-      startDate,
-      nights: Math.max(0, (trip.durationDays ?? 1) - 1),
-      groupSize,
-      hasKids: false,
-      experience: "intermediate",
-    });
-    const c = trip.startPointGeojson?.coordinates;
-    if (c) setSelectedPlace({ id: String(trip.id), name: trip.name, lat: c[1], lng: c[0], type: "trip" });
-    openPackingPanel();
-  }, [trip, startDate, groupSize, clearPacking, setTripInput, setSelectedPlace, openPackingPanel]);
+    setPackingLoading(true);
+    setPackingError(null);
+    setPackingExpanded(true);
+
+    if (packingAbortRef.current) packingAbortRef.current.abort();
+    packingAbortRef.current = new AbortController();
+
+    try {
+      const res = await fetch("/api/ai/packing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          destinationName: trip.name,
+          startDate,
+          nights: Math.max(1, (trip.durationDays ?? 2) - 1),
+          groupSize,
+          hasKids: false,
+          experience: "intermediate",
+        }),
+        signal: packingAbortRef.current.signal,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? `Feil: ${res.status}`);
+      }
+
+      const validated = PackingListSchema.parse(await res.json());
+      setPackingItems(validated);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setPackingError(err instanceof Error ? err.message : "Ukjent feil");
+    } finally {
+      setPackingLoading(false);
+    }
+  }, [trip, startDate, groupSize, clearPacking, setPackingItems, setPackingLoading, setPackingError]);
 
   const handleJoin = useCallback(async () => {
     if (!routeParams?.id) return;
@@ -681,26 +715,201 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
           </p>
         </SectionCard>
 
-        {/* ── Offline nedlasting — F8 / T1 ─────────────────────────────── */}
+        {/* ── Pakkeliste (inline accordion) ─────────────────────────── */}
+        {(packingLoading || packingItems.length > 0 || !!packingError) && (
+          <SectionCard>
+            {/* Accordion toggle */}
+            <button
+              type="button"
+              onClick={() => setPackingExpanded((v) => !v)}
+              className="w-full flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <span>🎒</span>
+                <div className="text-left">
+                  <p className="text-sm font-semibold" style={{ color: "var(--color-neutral-600)" }}>
+                    Pakkeliste
+                  </p>
+                  {!packingLoading && packingItems.length > 0 && (
+                    <p className="text-xs" style={{ color: "var(--color-neutral-300)" }}>
+                      {packedItemKeys.size} / {packingItems.length} pakket
+                    </p>
+                  )}
+                </div>
+              </div>
+              <ChevronDown
+                className="w-4 h-4 transition-transform shrink-0"
+                style={{
+                  color: "var(--color-neutral-400)",
+                  transform: packingExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                }}
+              />
+            </button>
+
+            {packingExpanded && (
+              <div className="mt-4">
+                {/* Loading */}
+                {packingLoading && (
+                  <div className="flex flex-col items-center justify-center py-8 gap-2">
+                    <div
+                      className="w-7 h-7 border-2 border-t-transparent rounded-full animate-spin"
+                      style={{ borderColor: "var(--color-brand-400)", borderTopColor: "transparent" }}
+                    />
+                    <p className="text-xs" style={{ color: "var(--color-neutral-400)" }}>
+                      Genererer pakkeliste…
+                    </p>
+                  </div>
+                )}
+
+                {/* Error */}
+                {packingError && (
+                  <div className="p-3 rounded-lg mb-2" style={{ background: "#fef2f2", border: "1px solid #fca5a5" }}>
+                    <p className="text-sm" style={{ color: "#dc2626" }}>{packingError}</p>
+                  </div>
+                )}
+
+                {/* Results */}
+                {!packingLoading && packingItems.length > 0 && (() => {
+                  const grouped = new Map<string, typeof packingItems>();
+                  packingItems.forEach((item) => {
+                    if (!grouped.has(item.category)) grouped.set(item.category, []);
+                    grouped.get(item.category)!.push(item);
+                  });
+
+                  let globalIdx = 0;
+                  return (
+                    <>
+                      {/* Progress bar + toolbar */}
+                      <div className="mb-4">
+                        <div className="w-full h-1.5 rounded-full overflow-hidden"
+                          style={{ background: "var(--color-neutral-100)" }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-300"
+                            style={{
+                              background: "#22c55e",
+                              width: `${(packedItemKeys.size / packingItems.length) * 100}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold"
+                            style={{ background: "var(--color-brand-100, #dbeafe)", color: "var(--color-brand-500)" }}>
+                            AI-generert
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => clearPacking()}
+                            className="flex items-center gap-1 text-xs hover:underline"
+                            style={{ color: "var(--color-neutral-400)" }}
+                          >
+                            <RefreshCw size={11} />
+                            Generer på nytt
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Category groups */}
+                      {Array.from(grouped.entries()).map(([category, items]) => {
+                        const startIdx = globalIdx;
+                        globalIdx += items.length;
+                        const catPacked = items.filter((_, i) =>
+                          packedItemKeys.has(`${category}|${startIdx + i}`)
+                        ).length;
+
+                        return (
+                          <div key={category} className="mb-2 rounded-xl overflow-hidden"
+                            style={{ border: "1px solid var(--color-border-default)" }}>
+                            <div className="px-4 py-2.5 flex items-center justify-between"
+                              style={{ background: "var(--color-neutral-50, #f9fafb)" }}>
+                              <p className="text-sm font-semibold" style={{ color: "var(--color-neutral-600)" }}>
+                                {category}
+                              </p>
+                              {catPacked > 0 && (
+                                <span className="text-xs" style={{ color: "var(--color-neutral-300)" }}>
+                                  {catPacked}/{items.length}
+                                </span>
+                              )}
+                            </div>
+
+                            {items.map((item, i) => {
+                              const key = `${category}|${startIdx + i}`;
+                              const packed = packedItemKeys.has(key);
+                              return (
+                                <label
+                                  key={i}
+                                  className="flex items-start gap-3 px-4 py-3 cursor-pointer"
+                                  style={{
+                                    borderTop: "1px solid var(--color-border-default)",
+                                    background: packed ? "#f0fdf4" : "white",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={packed}
+                                    onChange={() => togglePackedItem(key)}
+                                    className="w-4 h-4 mt-0.5 flex-shrink-0 accent-green-600 cursor-pointer"
+                                  />
+                                  <div style={{ opacity: packed ? 0.5 : 1 }}>
+                                    <p
+                                      className="text-sm font-medium"
+                                      style={{
+                                        color: "var(--color-neutral-600)",
+                                        textDecoration: packed ? "line-through" : "none",
+                                      }}
+                                    >
+                                      {item.quantity}× {item.item}
+                                    </p>
+                                    {item.notes && (
+                                      <p className="text-xs mt-0.5" style={{ color: "var(--color-neutral-400)" }}>
+                                        {item.notes}
+                                      </p>
+                                    )}
+                                    <p className="text-xs mt-0.5" style={{ color: "var(--color-neutral-300)" }}>
+                                      {item.assignedTo === "group" ? "Gruppes ansvar" : "Personlig ansvar"}
+                                    </p>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </SectionCard>
+        )}
+
+        {/* ── Turguide PDF — F8 / T1 ──────────────────────────────────── */}
         {stages.length > 0 && (
           <SectionCard>
             <SectionTitle
-              emoji="📵"
-              title="Offline tilgang"
-              sub="Last ned kart og rute for bruk uten mobildekning"
+              emoji="📄"
+              title="Turguide"
+              sub="Last ned etapper, hytter og nødinfo som PDF"
             />
             <OfflineDownloadButton
-              tripId={String(trip.id)}
               trip={trip}
               cabins={cabins}
               stages={stages}
+              participants={participants}
             />
           </SectionCard>
         )}
 
-      </div>
+        {/* ── Etteroppgjør — F9 / R1 ───────────────────────────────────── */}
+        <SectionCard>
+          <SectionTitle
+            emoji="💰"
+            title="Etteroppgjør"
+            sub="Registrer utgifter og beregn hvem som skylder hva"
+          />
+          <ExpensePanel tripId={String(trip.id)} participants={participants} />
+        </SectionCard>
 
-      <PackingListPanel />
+      </div>
 
       {showInviteModal && (
         <InviteModal

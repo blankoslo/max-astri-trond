@@ -19,6 +19,8 @@ export default function PackingListPanel() {
     setPackingLoading,
     setPackingError,
     clearPacking,
+    packedItemKeys,
+    togglePackedItem,
   } = useTripStore();
 
   // Local form state for Step 1
@@ -274,65 +276,110 @@ export default function PackingListPanel() {
           ) : (
             // ─ Step 2: Results ──────────────────────────────────────────────
             <div className="p-6 space-y-4">
-              {/* AI Badge */}
-              <div className="flex items-center justify-between mb-4">
+              {/* Header row: AI badge + progress counter */}
+              <div className="flex items-center justify-between mb-2">
                 <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">
                   AI-generert
                 </span>
+                <span className="text-sm text-slate-500">
+                  <span className="font-semibold text-slate-700">{packedItemKeys.size}</span>
+                  {" / "}
+                  <span className="font-semibold text-slate-700">{packingItems.length}</span>
+                  {" pakket"}
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-green-500 rounded-full transition-all duration-300"
+                  style={{
+                    width: packingItems.length > 0
+                      ? `${(packedItemKeys.size / packingItems.length) * 100}%`
+                      : "0%",
+                  }}
+                />
               </div>
 
               {/* Categories and items */}
-              {Array.from(groupedItems.entries()).map(([category, items]) => (
-                <div key={category} className="border border-slate-200 rounded-lg overflow-hidden">
-                  {/* Category header */}
-                  <button
-                    onClick={() => toggleCategory(category)}
-                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors"
-                  >
-                    <h3 className="font-semibold text-slate-900">{category}</h3>
-                    <ChevronDown
-                      className={`w-4 h-4 text-slate-600 transition-transform ${
-                        expandedCategories.has(category) ? "rotate-180" : ""
-                      }`}
-                    />
-                  </button>
+              {(() => {
+                // Build a stable global index map so keys don't shift when categories change
+                let globalIdx = 0;
+                return Array.from(groupedItems.entries()).map(([category, items]) => {
+                  const categoryStartIdx = globalIdx;
+                  globalIdx += items.length;
+                  const categoryPacked = items.filter((_, i) =>
+                    packedItemKeys.has(`${category}|${categoryStartIdx + i}`)
+                  ).length;
 
-                  {/* Items */}
-                  {expandedCategories.has(category) && (
-                    <div className="border-t border-slate-200 bg-slate-50">
-                      {items.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="px-4 py-3 border-b border-slate-200 last:border-b-0 flex items-start gap-3"
-                        >
-                          {/* Checkbox */}
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 mt-1 border border-slate-300 rounded cursor-pointer"
-                          />
-
-                          {/* Item details */}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-900">
-                              {item.quantity}× {item.item}
-                            </p>
-                            {item.notes && (
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {item.notes}
-                              </p>
-                            )}
-                            <p className="text-xs text-slate-400 mt-1">
-                              {item.assignedTo === "group"
-                                ? "Gruppes ansvar"
-                                : "Personlig ansvar"}
-                            </p>
-                          </div>
+                  return (
+                    <div key={category} className="border border-slate-200 rounded-lg overflow-hidden">
+                      {/* Category header */}
+                      <button
+                        onClick={() => toggleCategory(category)}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-slate-900">{category}</h3>
+                          {categoryPacked > 0 && (
+                            <span className="text-xs text-slate-400">
+                              {categoryPacked}/{items.length}
+                            </span>
+                          )}
                         </div>
-                      ))}
+                        <ChevronDown
+                          className={`w-4 h-4 text-slate-600 transition-transform ${
+                            expandedCategories.has(category) ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+
+                      {/* Items */}
+                      {expandedCategories.has(category) && (
+                        <div className="border-t border-slate-200 bg-slate-50">
+                          {items.map((item, i) => {
+                            const itemKey = `${category}|${categoryStartIdx + i}`;
+                            const isPacked = packedItemKeys.has(itemKey);
+                            return (
+                              <label
+                                key={i}
+                                className={`px-4 py-3 border-b border-slate-200 last:border-b-0 flex items-start gap-3 cursor-pointer transition-colors ${
+                                  isPacked ? "bg-green-50" : "hover:bg-white"
+                                }`}
+                              >
+                                {/* Checkbox */}
+                                <input
+                                  type="checkbox"
+                                  checked={isPacked}
+                                  onChange={() => togglePackedItem(itemKey)}
+                                  className="w-4 h-4 mt-1 accent-green-600 cursor-pointer flex-shrink-0"
+                                />
+
+                                {/* Item details */}
+                                <div className={`flex-1 min-w-0 transition-opacity ${isPacked ? "opacity-50" : ""}`}>
+                                  <p className={`text-sm font-medium text-slate-900 ${isPacked ? "line-through" : ""}`}>
+                                    {item.quantity}× {item.item}
+                                  </p>
+                                  {item.notes && (
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                      {item.notes}
+                                    </p>
+                                  )}
+                                  <p className="text-xs text-slate-400 mt-1">
+                                    {item.assignedTo === "group"
+                                      ? "Gruppes ansvar"
+                                      : "Personlig ansvar"}
+                                  </p>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
+                  );
+                });
+              })()}
             </div>
           )}
 
