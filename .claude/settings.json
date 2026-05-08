@@ -1,0 +1,11 @@
+{
+  "extraKnownMarketplaces": {
+    "repo-local": {
+      "source": "directory",
+      "path": "/home/trond/Projects/Blank/max-astri-trond/.claude/plugins"
+    }
+  },
+  "enabledPlugins": {
+    "repo-skills@repo-local": true
+  }
+}

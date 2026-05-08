@@ -1,0 +1,14 @@
+{
+  "name": "repo-local",
+  "description": "Project-local skills for this repository",
+  "owner": {
+    "name": "local"
+  },
+  "plugins": [
+    {
+      "name": "repo-skills",
+      "description": "Project-local skills",
+      "source": "./repo-skills"
+    }
+  ]
+}
