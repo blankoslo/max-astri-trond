@@ -23,3 +23,7 @@ No test suite configured yet.
 App Router layout: `src/app/layout.tsx` is the root shell (font vars, body flex column). Pages go in `src/app/`. No API routes, no data layer yet — this is a blank slate.
 
 Tailwind v4 uses PostCSS plugin (`@tailwindcss/postcss`), not the legacy `tailwind.config.js` approach. CSS custom properties for fonts are set via `--font-geist-sans` / `--font-geist-mono` variables.
+
+## Prosjekt
+
+Se [docs/friluftskompis.md](docs/friluftskompis.md) for prosjektbeskrivelse, scenarioer, brukerreise og MVP-definisjon.
