@@ -11,7 +11,6 @@ export default function PackingListPanel() {
     packingOpen,
     closePackingPanel,
     selectedPlace,
-    tripInput,
     setTripInput,
     packingItems,
     packingLoading,

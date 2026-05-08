@@ -213,10 +213,10 @@ export default function TripSuggestions() {
   // ── Trip fetch ───────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
     (async () => {
+      setLoading(true);
+      setError(null);
       try {
         const res  = await fetch(buildUrl(filters, season));
         if (!res.ok) throw new Error();
@@ -230,8 +230,8 @@ export default function TripSuggestions() {
     })();
 
     return () => { cancelled = true; };
+    // season derived from new Date() — adding to deps re-triggers every render
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    // season is derived from new Date() each render — adding it to deps would re-trigger on every render
   }, [filters]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
