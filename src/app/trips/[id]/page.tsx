@@ -225,12 +225,14 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
   // Fetch trip + cabins in parallel
   useEffect(() => {
     if (!routeParams?.id) return;
-    setLoading(true); setError(null);
-    (async () => {
+    
+    async function loadTripData() {
+      setLoading(true);
+      setError(null);
       try {
         const [tripRes, cabinRes] = await Promise.all([
-          fetch(`/api/trips/${routeParams.id}`),
-          fetch(`/api/trips/${routeParams.id}/cabins?interval=5000&radius=3000`),
+          fetch(`/api/trips/${routeParams!.id}`),
+          fetch(`/api/trips/${routeParams!.id}/cabins?interval=5000&radius=3000`),
         ]);
         if (!tripRes.ok) throw new Error("Fant ikke turen");
         const tripData: UtnoTrip = await tripRes.json();
@@ -241,28 +243,40 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
       } finally {
         setLoading(false);
       }
-    })();
-  }, [routeParams?.id]);
+    }
+    
+    loadTripData();
+  }, [routeParams]);
 
   // Fetch 5-day weather for trip start point
   useEffect(() => {
     if (!trip?.startPointGeojson?.coordinates) return;
-    setWeatherLoading(true);
-    const [lng, lat] = trip.startPointGeojson.coordinates;
-    fetch(`/api/weather?lat=${lat}&lon=${lng}`)
-      .then((r) => {
+    
+    async function loadWeatherData() {
+      setWeatherLoading(true);
+      try {
+        const [lng, lat] = trip!.startPointGeojson!.coordinates;
+        const r = await fetch(`/api/weather?lat=${lat}&lon=${lng}`);
         const source = r.headers.get('X-Data-Source');
         const cachedAt = r.headers.get('X-Cache-Fetched-At');
         setWeatherFallback(source === 'fallback' || source === 'cache');
         setWeatherCachedAt(source === 'cache' && cachedAt ? cachedAt : null);
-        return r.ok ? r.json() : Promise.reject();
-      })
-      .then((days: WeatherDay[]) => setWeather(days.slice(0, 5)))
-      .catch(() => {
+        
+        if (r.ok) {
+          const days: WeatherDay[] = await r.json();
+          setWeather(days.slice(0, 5));
+        } else {
+          throw new Error('Weather fetch failed');
+        }
+      } catch {
         setWeatherFallback(false);
         setWeatherCachedAt(null);
-      })
-      .finally(() => setWeatherLoading(false));
+      } finally {
+        setWeatherLoading(false);
+      }
+    }
+    
+    loadWeatherData();
   }, [trip?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load participants from Supabase + subscribe to real-time changes
@@ -382,14 +396,14 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
     } catch {
       setJoinError("Noe gikk galt. Prøv igjen.");
     }
-  }, [routeParams?.id, joinName]);
+  }, [routeParams, joinName]);
 
   const handleLeave = useCallback(async () => {
     if (!routeParams?.id) return;
     await leaveTrip(routeParams.id);
     setAlreadyJoined(false);
     // Real-time subscription will refresh the list automatically
-  }, [routeParams?.id]);
+  }, [routeParams]);
 
   // ── Loading / error ──────────────────────────────────────────────────────
   if (loading) return (

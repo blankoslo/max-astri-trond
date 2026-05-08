@@ -74,11 +74,14 @@ export default function PlanningPanel() {
   const [groupSize, setGroupSize] = useState(2);
 
   useEffect(() => {
-    if (planningTrip) {
-      setStartDate(todayIso());
-      setGroupSize(2);
-    }
-  }, [planningTrip?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+    const updateDefaults = () => {
+      if (planningTrip) {
+        setStartDate(todayIso());
+        setGroupSize(2);
+      }
+    };
+    updateDefaults();
+  }, [planningTrip]);
 
   if (!planningPanelOpen || !planningTrip) return null;
 

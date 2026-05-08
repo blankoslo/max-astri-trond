@@ -59,6 +59,7 @@ export default function AdminPage() {
       endpoint: "https://api.anthropic.com",
       requiresKey: true,
       keyName: "ANTHROPIC_API_KEY",
+      isPublic: false,
       status: anthropicKeySet ? "configured" : "missing",
     },
     {
@@ -68,6 +69,7 @@ export default function AdminPage() {
       endpoint: "https://supabase.co",
       requiresKey: true,
       keyName: "NEXT_PUBLIC_SUPABASE_URL / ANON_KEY",
+      isPublic: false,
       status:
         supabaseUrlSet && supabaseAnonKeySet ? "configured" : "missing",
     },

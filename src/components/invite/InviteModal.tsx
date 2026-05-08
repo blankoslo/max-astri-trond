@@ -9,11 +9,16 @@ interface Props {
 }
 
 export default function InviteModal({ tripId, tripName, onClose }: Props) {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(`${typeof window !== 'undefined' ? window.location.origin : ''}/trips/${tripId}`);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    setUrl(`${window.location.origin}/trips/${tripId}`);
+    const updateUrl = () => {
+      if (typeof window !== 'undefined') {
+        setUrl(`${window.location.origin}/trips/${tripId}`);
+      }
+    };
+    updateUrl();
   }, [tripId]);
 
   async function handleCopy() {

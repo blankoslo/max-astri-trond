@@ -55,11 +55,12 @@ export default function ExpensePanel({ tripId, participants }: Props) {
 
   // ── Load from localStorage on mount / tripId change ─────────────────────
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setExpenses(getExpenses(tripId));
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setForm(emptyForm(participants));
-  }, [tripId]); // eslint-disable-line react-hooks/exhaustive-deps
+    const loadData = () => {
+      setExpenses(getExpenses(tripId));
+      setForm(emptyForm(participants));
+    };
+    loadData();
+  }, [tripId, participants]);
 
   // ── Participant name lookup ──────────────────────────────────────────────
   const nameOf = useCallback(

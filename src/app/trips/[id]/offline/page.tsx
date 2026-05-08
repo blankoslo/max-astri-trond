@@ -11,7 +11,7 @@
  *  - Viser offline-badge og nettverksstatus
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { loadOfflineTrip } from "@/lib/offlineStorage";
@@ -151,18 +151,25 @@ export default function OfflinePage({ params }: { params: Promise<RouteParams> }
   // Load from IndexedDB
   useEffect(() => {
     if (!routeParams?.id) return;
-    setLoading(true);
-    loadOfflineTrip(routeParams.id)
-      .then((data) => {
+    
+    async function loadData() {
+      setLoading(true);
+      try {
+        const data = await loadOfflineTrip(routeParams!.id);
         if (!data) {
           setError("Denne turen er ikke lastet ned for offline bruk.");
         } else {
           setOfflineData(data);
         }
-      })
-      .catch(() => setError("Kunne ikke laste offline-data."))
-      .finally(() => setLoading(false));
-  }, [routeParams?.id]);
+      } catch {
+        setError("Kunne ikke laste offline-data.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    loadData();
+  }, [routeParams]);
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
