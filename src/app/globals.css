@@ -1,15 +1,158 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand Colors */
+  --color-brand-100: #dcdeff;
+  --color-brand-200: #bfc3ff;
+  --color-brand-300: #959bff;
+  --color-brand-400: #4f59fb;
+  --color-brand-500: #2f3597;
+  --color-brand-600: #202464;
+
+  /* Neutral Colors */
+  --color-neutral-100: #d9d9d9;
+  --color-neutral-200: #a6a6a6;
+  --color-neutral-300: #808080;
+  --color-neutral-400: #666666;
+  --color-neutral-500: #4d4d4d;
+  --color-neutral-600: #1a1a1a;
+  --color-black: #000000;
+  --color-white: #ffffff;
+
+  /* System Colors */
+  --color-info: #1D4ED8;
+  --color-info-light: #DBEAFE;
+  --color-warning: #e15b02;
+  --color-warning-light: #ffdac2;
+  --color-success: #0f8402;
+  --color-success-light: #d4ffcf;
+  --color-error: #bf0000;
+  --color-error-light: #ffcece;
+
+  /* Semantic Colors */
+  --color-background-white: #ffffff;
+  --color-background-primary: #4f59fb;
+  --color-background-primary-hover: #2f3597;
+  --color-background-disabled: #d9d9d9;
+  --color-text-placeholder: #666666;
+  --color-text-white: #ffffff;
+  --color-text-black: #000000;
+  --color-text-primary: #4f59fb;
+  --color-text-primary-hover: #2f3597;
+  --color-text-disabled: #4d4d4d;
+  --color-border-default: #d9d9d9;
+  --color-border-primary: #4f59fb;
+  --color-border-disabled: #a6a6a6;
+
+  /* Typography */
+  --font-family-primary: 'Inter', sans-serif;
+  --font-family-secondary: 'Source Serif 4', serif;
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-size-100: 12px;
+  --font-size-200: 14px;
+  --font-size-300: 16px;
+  --font-size-400: 18px;
+  --font-size-500: 24px;
+  --font-size-600: 32px;
+  --font-size-700: 40px;
+  --font-size-800: 48px;
+
+  /* Spacing */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 16px;
+  --spacing-4: 24px;
+  --spacing-5: 32px;
+  --spacing-6: 48px;
+  --spacing-7: 64px;
+  --spacing-8: 96px;
+
+  /* Border */
+  --border-stroke: 1px;
+  --border-radius-small: 4px;
+  --border-radius-medium: 16px;
+  --border-radius-full: 100px;
+
+  /* Legacy variables for backward compatibility */
+  --background: var(--color-background-white);
+  --foreground: var(--color-text-black);
 }
 
 @theme inline {
-  --color-background: var(--background);
+  /* Brand Colors */
+  --color-brand-100: var(--color-brand-100);
+  --color-brand-200: var(--color-brand-200);
+  --color-brand-300: var(--color-brand-300);
+  --color-brand-400: var(--color-brand-400);
+  --color-brand-500: var(--color-brand-500);
+  --color-brand-600: var(--color-brand-600);
+
+  /* Neutral Colors */
+  --color-neutral-100: var(--color-neutral-100);
+  --color-neutral-200: var(--color-neutral-200);
+  --color-neutral-300: var(--color-neutral-300);
+  --color-neutral-400: var(--color-neutral-400);
+  --color-neutral-500: var(--color-neutral-500);
+  --color-neutral-600: var(--color-neutral-600);
+  --color-black: var(--color-black);
+  --color-white: var(--color-white);
+
+  /* System Colors */
+  --color-info: var(--color-info);
+  --color-info-light: var(--color-info-light);
+  --color-warning: var(--color-warning);
+  --color-warning-light: var(--color-warning-light);
+  --color-success: var(--color-success);
+  --color-success-light: var(--color-success-light);
+  --color-error: var(--color-error);
+  --color-error-light: var(--color-error-light);
+
+  /* Semantic Colors */
+  --color-background: var(--color-background-white);
+  --color-background-primary: var(--color-background-primary);
+  --color-background-primary-hover: var(--color-background-primary-hover);
+  --color-background-disabled: var(--color-background-disabled);
+  --color-text: var(--color-text-black);
+  --color-text-placeholder: var(--color-text-placeholder);
+  --color-text-white: var(--color-text-white);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-primary-hover: var(--color-text-primary-hover);
+  --color-text-disabled: var(--color-text-disabled);
+  --color-border: var(--color-border-default);
+  --color-border-primary: var(--color-border-primary);
+  --color-border-disabled: var(--color-border-disabled);
+
+  /* Typography */
+  --font-sans: var(--font-family-primary);
+  --font-serif: var(--font-family-secondary);
+  --font-size-xs: var(--font-size-100);
+  --font-size-sm: var(--font-size-200);
+  --font-size-base: var(--font-size-300);
+  --font-size-lg: var(--font-size-400);
+  --font-size-xl: var(--font-size-500);
+  --font-size-2xl: var(--font-size-600);
+  --font-size-3xl: var(--font-size-700);
+  --font-size-4xl: var(--font-size-800);
+
+  /* Spacing */
+  --space-1: var(--spacing-1);
+  --space-2: var(--spacing-2);
+  --space-3: var(--spacing-3);
+  --space-4: var(--spacing-4);
+  --space-5: var(--spacing-5);
+  --space-6: var(--spacing-6);
+  --space-7: var(--spacing-7);
+  --space-8: var(--spacing-8);
+
+  /* Border Radius */
+  --radius-sm: var(--border-radius-small);
+  --radius-md: var(--border-radius-medium);
+  --radius-full: var(--border-radius-full);
+
+  /* Legacy compatibility */
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
