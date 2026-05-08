@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { weatherService } from '@/services/weather';
 import type { WeatherDay } from '@/types';
 import { getWeatherEmoji } from '@/lib/apis/yr';
+import { getFallbackWeather } from '@/lib/fallbackData';
+import { saveWeatherCache, loadWeatherCache } from '@/lib/weatherCache';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -20,14 +22,14 @@ export async function GET(request: NextRequest) {
 
   // Strict numeric validation to avoid accepting partial numbers like "59.91abc"
   const numericRegex = /^-?\d*\.?\d+$/;
-  
+
   if (!numericRegex.test(lat) || !numericRegex.test(lon)) {
     return NextResponse.json(
       { error: 'Invalid coordinates: lat and lon must be valid numbers' },
       { status: 400 }
     );
   }
-  
+
   const latNum = Number(lat);
   const lonNum = Number(lon);
   const altitudeNum = altitude && numericRegex.test(altitude) ? Number(altitude) : undefined;
@@ -78,16 +80,37 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Persist to Supabase cache (fire-and-forget — don't let a cache write block the response)
+    saveWeatherCache(latNum, lonNum, days).catch(() => {});
+
     return NextResponse.json(days, {
       headers: {
         'Cache-Control': 's-maxage=3600, stale-while-revalidate=7200',
+        'X-Data-Source': 'live',
       },
     });
   } catch (error) {
     console.error('Weather API error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch weather data' },
-      { status: 500 }
-    );
+
+    // Try to serve the last known-good forecast from Supabase
+    const cached = await loadWeatherCache(latNum, lonNum).catch(() => null);
+    if (cached) {
+      return NextResponse.json(cached.days, {
+        headers: {
+          'X-Data-Source': 'cache',
+          'X-Cache-Fetched-At': cached.fetchedAt,
+          'Cache-Control': 's-maxage=300, stale-while-revalidate=3600',
+        },
+      });
+    }
+
+    // Nothing cached — last resort: return clearly-synthetic placeholder data
+    const fallbackDays = getFallbackWeather();
+    return NextResponse.json(fallbackDays, {
+      headers: {
+        'X-Data-Source': 'fallback',
+        'Cache-Control': 's-maxage=300, stale-while-revalidate=3600',
+      },
+    });
   }
 }

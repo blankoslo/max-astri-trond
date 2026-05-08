@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { UtnoTrip, TripGrading, TripActivityType } from "@/types";
 import type { AutocompleteResult } from "@/lib/apis/utno";
 import { useTripStore } from "@/store/tripStore";
+import AiBadge from "@/components/ui/AiBadge";
 
 // ─── Season ───────────────────────────────────────────────────────────────────
 
@@ -356,6 +357,13 @@ export default function TripSuggestions() {
             </span>
           )}
         </div>
+
+        {/* Data source badge */}
+        {!loading && trips.length > 0 && (
+          <div>
+            <AiBadge variant="factual" source="UT.no" />
+          </div>
+        )}
       </div>
 
       {/* ── Results grid ──────────────────────────────────────────────────────── */}

@@ -64,6 +64,10 @@ interface TripStore {
   setPackingLoading: (v: boolean) => void;
   setPackingError: (msg: string | null) => void;
   clearPacking: () => void;
+
+  // ── Packed-item tracking (keyed by "category|globalIndex") ────────────────
+  packedItemKeys: Set<string>;
+  togglePackedItem: (key: string) => void;
 }
 
 export const useTripStore = create<TripStore>((set) => ({
@@ -127,7 +131,16 @@ export const useTripStore = create<TripStore>((set) => ({
   setPackingLoading: (v) => set({ packingLoading: v }),
   setPackingError: (msg) => set({ packingError: msg }),
   clearPacking: () =>
-    set({ packingItems: [], packingLoading: false, packingError: null }),
+    set({ packingItems: [], packingLoading: false, packingError: null, packedItemKeys: new Set() }),
+
+  packedItemKeys: new Set<string>(),
+  togglePackedItem: (key) =>
+    set((state) => {
+      const next = new Set(state.packedItemKeys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { packedItemKeys: next };
+    }),
 }));
 
 if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {

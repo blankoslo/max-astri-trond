@@ -1,5 +1,6 @@
 import type { WeatherDay } from "@/types";
 import { getWeatherEmoji } from "@/lib/apis/yr";
+import AiBadge from "@/components/ui/AiBadge";
 
 /**
  * Norwegian day abbreviations
@@ -8,9 +9,10 @@ const DAY_NAMES = ["Son", "Man", "Tir", "Ons", "Tor", "Fre", "Lør"];
 
 interface WeatherForecastProps {
   days: WeatherDay[];
+  showBadge?: boolean;
 }
 
-export default function WeatherForecast({ days }: WeatherForecastProps) {
+export default function WeatherForecast({ days, showBadge = true }: WeatherForecastProps) {
   if (!days || days.length === 0) {
     return (
       <div className="text-center py-4 text-slate-500 text-sm">
@@ -20,7 +22,13 @@ export default function WeatherForecast({ days }: WeatherForecastProps) {
   }
 
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2">
+    <div className="space-y-3">
+      {showBadge && (
+        <div>
+          <AiBadge variant="factual" source="Yr / MET Norway" />
+        </div>
+      )}
+      <div className="flex gap-2 overflow-x-auto pb-2">
       {days.map((day) => {
         const date = new Date(day.date + "T00:00:00");
         const dayName = DAY_NAMES[date.getDay()];
@@ -58,6 +66,7 @@ export default function WeatherForecast({ days }: WeatherForecastProps) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
