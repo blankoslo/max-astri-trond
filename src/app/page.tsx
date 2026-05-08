@@ -1,7 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useState } from "react";
+import { Settings } from "lucide-react";
 import TripSuggestions from "@/components/trips/TripSuggestions";
 
 // Map must be client-only (Leaflet / MapLibre touch the DOM)
@@ -49,27 +51,44 @@ export default function Home() {
 
         {/* ── Tab switcher ───────────────────────────────────── */}
         <div
-          className="ml-auto flex items-center p-1 rounded-xl gap-1"
-          style={{ background: "var(--color-neutral-100)" }}
+          className="ml-auto flex items-center gap-2"
         >
-          {(["turer", "kart"] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
-              style={{
-                background: tab === t ? "white" : "transparent",
-                color:
-                  tab === t
-                    ? "var(--color-brand-500)"
-                    : "var(--color-neutral-400)",
-                boxShadow: tab === t ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
-              }}
-            >
-              {t === "turer" ? "🥾" : "🗺️"}
-              <span className="capitalize">{t === "turer" ? "Turer" : "Kart"}</span>
-            </button>
-          ))}
+          <div
+            className="flex items-center p-1 rounded-xl gap-1"
+            style={{ background: "var(--color-neutral-100)" }}
+          >
+            {(["turer", "kart"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
+                style={{
+                  background: tab === t ? "white" : "transparent",
+                  color:
+                    tab === t
+                      ? "var(--color-brand-500)"
+                      : "var(--color-neutral-400)",
+                  boxShadow: tab === t ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+                }}
+              >
+                {t === "turer" ? "🥾" : "🗺️"}
+                <span className="capitalize">{t === "turer" ? "Turer" : "Kart"}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* ── Settings link ────────────────────────────────── */}
+          <Link
+            href="/admin"
+            className="flex items-center justify-center w-10 h-10 rounded-lg transition-all hover:bg-opacity-80"
+            style={{
+              background: "var(--color-neutral-100)",
+              color: "var(--color-neutral-400)",
+            }}
+            title="Systemkonfigurasjon"
+          >
+            <Settings size={20} />
+          </Link>
         </div>
       </header>
 

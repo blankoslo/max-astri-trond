@@ -5,6 +5,7 @@ import { useTripStore } from "@/store/tripStore";
 import { PackingListSchema } from "@/lib/ai/prompts";
 import type { PackingItem } from "@/types";
 import { X, RefreshCw, ChevronDown } from "lucide-react";
+import AiBadge from "@/components/ui/AiBadge";
 
 export default function PackingListPanel() {
   const {
@@ -278,9 +279,7 @@ export default function PackingListPanel() {
             <div className="p-6 space-y-4">
               {/* Header row: AI badge + progress counter */}
               <div className="flex items-center justify-between mb-2">
-                <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">
-                  AI-generert
-                </span>
+                <AiBadge variant="ai" source="Claude Haiku" />
                 <span className="text-sm text-slate-500">
                   <span className="font-semibold text-slate-700">{packedItemKeys.size}</span>
                   {" / "}

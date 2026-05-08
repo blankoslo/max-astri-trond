@@ -12,6 +12,7 @@
 
 import { NextResponse } from "next/server";
 import { cabinsNear } from "@/lib/apis/utno";
+import { FALLBACK_CABINS } from "@/lib/fallbackData";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -25,9 +26,19 @@ export async function GET(request: Request) {
 
   try {
     const results = await cabinsNear({ lat, lng, radiusMetres: radius });
-    return NextResponse.json({ cabins: results.map((r) => ({ ...r.cabin, distanceFromPoint: r.distance })) });
+    return NextResponse.json(
+      { cabins: results.map((r) => ({ ...r.cabin, distanceFromPoint: r.distance })) },
+      { headers: { 'X-Data-Source': 'live' } }
+    );
   } catch (err) {
     console.error("[/api/cabins] Error:", err);
-    return NextResponse.json({ error: "Failed to fetch cabins" }, { status: 502 });
+    return NextResponse.json(
+      {
+        cabins: FALLBACK_CABINS,
+        fallback: true,
+        error: 'Unable to fetch cabins at this time. Showing example data.',
+      },
+      { headers: { 'X-Data-Source': 'fallback' } }
+    );
   }
 }

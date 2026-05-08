@@ -7,6 +7,7 @@ import type { UtnoTrip, UtnoCabin, WeatherDay } from "@/types";
 import { useTripStore } from "@/store/tripStore";
 import { PackingListSchema } from "@/lib/ai/prompts";
 import WeatherForecast from "@/components/weather/WeatherForecast";
+import AiBadge from "@/components/ui/AiBadge";
 import { ChevronDown, RefreshCw } from "lucide-react";
 import OfflineDownloadButton from "@/components/offline/OfflineDownloadButton";
 import InviteModal from "@/components/invite/InviteModal";
@@ -195,6 +196,8 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
   const [startDate, setStartDate] = useState(todayIso);
   const [groupSize, setGroupSize] = useState(2);
   const [weather,   setWeather]   = useState<WeatherDay[]>([]);
+  const [weatherFallback, setWeatherFallback] = useState(false);
+  const [weatherCachedAt,  setWeatherCachedAt]  = useState<string | null>(null);
   const [daySummaries,        setDaySummaries]        = useState<string[]>([]);
   const [daySummariesLoading, setDaySummariesLoading] = useState(false);
   const summaryFetchedForRef = useRef<string | null>(null); // avoid duplicate fetches
@@ -247,9 +250,18 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
     setWeatherLoading(true);
     const [lng, lat] = trip.startPointGeojson.coordinates;
     fetch(`/api/weather?lat=${lat}&lon=${lng}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((r) => {
+        const source = r.headers.get('X-Data-Source');
+        const cachedAt = r.headers.get('X-Cache-Fetched-At');
+        setWeatherFallback(source === 'fallback' || source === 'cache');
+        setWeatherCachedAt(source === 'cache' && cachedAt ? cachedAt : null);
+        return r.ok ? r.json() : Promise.reject();
+      })
       .then((days: WeatherDay[]) => setWeather(days.slice(0, 5)))
-      .catch(() => {})
+      .catch(() => {
+        setWeatherFallback(false);
+        setWeatherCachedAt(null);
+      })
       .finally(() => setWeatherLoading(false));
   }, [trip?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -538,10 +550,15 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
                         <div className="mt-2 h-3 rounded animate-pulse"
                           style={{ background: "var(--color-neutral-100)", width: "85%" }} />
                       ) : daySummaries[idx] ? (
-                        <p className="mt-2 text-xs leading-relaxed"
-                          style={{ color: "var(--color-neutral-400)", fontStyle: "italic" }}>
-                          {daySummaries[idx]}
-                        </p>
+                        <>
+                          <p className="mt-2 text-xs leading-relaxed"
+                            style={{ color: "var(--color-neutral-400)", fontStyle: "italic" }}>
+                            {daySummaries[idx]}
+                          </p>
+                          <div className="mt-2">
+                            <AiBadge variant="ai" source="Claude" />
+                          </div>
+                        </>
                       ) : null}
                     </div>
                   </div>
@@ -656,6 +673,22 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
         {/* ── Værvarselet — 5 dager ─────────────────────────────────────── */}
         <SectionCard>
           <SectionTitle emoji="🌤️" title="Værvarselet" sub="5 dager fra startpunktet" />
+          {weatherFallback && (
+            <div className="mb-4 p-3 rounded-lg flex items-start gap-2.5"
+              style={{ background: "#fffbeb", border: "1px solid #fcd34d" }}>
+              <span className="text-lg flex-shrink-0">⚠️</span>
+              <div>
+                <p className="text-xs font-medium" style={{ color: "#b45309" }}>
+                  Værvarselet er ikke tilgjengelig akkurat nå
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: "#92400e" }}>
+                  {weatherCachedAt
+                    ? `Viser lagret varsel fra ${new Date(weatherCachedAt).toLocaleString("nb-NO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}. Prøv igjen senere for oppdatert data.`
+                    : "Ingen lagret varsel tilgjengelig. Viser eksempeldata."}
+                </p>
+              </div>
+            </div>
+          )}
           {weatherLoading ? (
             <div className="flex items-center gap-2 py-3">
               <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"

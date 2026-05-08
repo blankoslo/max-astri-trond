@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { UtnoTrip, TripGrading, TripActivityType } from "@/types";
 import type { AutocompleteResult } from "@/lib/apis/utno";
+import AiBadge from "@/components/ui/AiBadge";
 
 // ─── Season ───────────────────────────────────────────────────────────────────
 
@@ -344,6 +345,13 @@ export default function TripSuggestions() {
             </span>
           )}
         </div>
+
+        {/* Data source badge */}
+        {!loading && trips.length > 0 && (
+          <div>
+            <AiBadge variant="factual" source="UT.no" />
+          </div>
+        )}
       </div>
 
       {/* ── Results grid ──────────────────────────────────────────────────────── */}
