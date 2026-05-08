@@ -1,0 +1,512 @@
+"use client";
+
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import type { UtnoTrip, UtnoCabin, WeatherDay } from "@/types";
+import { useTripStore } from "@/store/tripStore";
+import WeatherForecast from "@/components/weather/WeatherForecast";
+import PackingListPanel from "@/components/packing/PackingListPanel";
+
+const TripMap = dynamic(() => import("@/components/trip-detail/TripMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center"
+      style={{ background: "#e8edf2" }}>
+      <div className="flex flex-col items-center gap-2 opacity-50">
+        <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin"
+          style={{ borderColor: "var(--color-brand-400)", borderTopColor: "transparent" }} />
+        <span className="text-xs" style={{ color: "var(--color-neutral-400)" }}>Laster kart…</span>
+      </div>
+    </div>
+  ),
+});
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Stage {
+  day: number;
+  startName: string;
+  endName: string;
+  distanceKm: number;
+  estimatedHours: number;
+  isOvernight: boolean;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function gradingLabel(g: string | null) {
+  switch (g) {
+    case "EASY":       return "Enkel";
+    case "MODERATE":   return "Moderat";
+    case "TOUGH":      return "Krevende";
+    case "VERY_TOUGH": return "Meget krevende";
+    default:           return "";
+  }
+}
+
+function gradingColor(g: string | null) {
+  switch (g) {
+    case "EASY":       return "var(--color-success)";
+    case "MODERATE":   return "var(--color-warning)";
+    case "TOUGH":
+    case "VERY_TOUGH": return "var(--color-error)";
+    default:           return "var(--color-neutral-300)";
+  }
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ─── Daily itinerary algorithm (F7 / B3 / B6) ────────────────────────────────
+
+function buildItinerary(trip: UtnoTrip, cabins: UtnoCabin[]): Stage[] {
+  const coords = trip.geojson?.coordinates ?? [];
+  if (coords.length < 2) return [];
+
+  const numDays = trip.durationDays ?? Math.max(1, Math.ceil((trip.distance ?? 10000) / 15000));
+
+  // Cumulative distances along route (Haversine)
+  const cumDist: number[] = [0];
+  for (let i = 1; i < coords.length; i++) {
+    const [lon1, lat1] = coords[i - 1];
+    const [lon2, lat2] = coords[i];
+    const R = 6371000;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) ** 2;
+    cumDist.push(cumDist[i - 1] + 2 * R * Math.asin(Math.sqrt(a)));
+  }
+  const totalDist = cumDist[cumDist.length - 1];
+
+  if (numDays === 1) {
+    return [{
+      day: 1,
+      startName: "Startpunkt",
+      endName: "Endepunkt",
+      distanceKm: Math.round((totalDist / 1000) * 10) / 10,
+      estimatedHours: Math.round(((totalDist / 1000) / 3.5) * 10) / 10,
+      isOvernight: false,
+    }];
+  }
+
+  // Project each cabin onto route → find nearest coord index
+  const cabinsWithIdx = cabins
+    .filter((c) => c.geojson?.coordinates)
+    .map((c) => {
+      const [clon, clat] = c.geojson!.coordinates;
+      let minD = Infinity, minIdx = 0;
+      coords.forEach(([rlon, rlat], i) => {
+        const d = Math.hypot(clon - rlon, clat - rlat);
+        if (d < minD) { minD = d; minIdx = i; }
+      });
+      return { cabin: c, routeIdx: minIdx, cumDistAtIdx: cumDist[minIdx] };
+    })
+    .sort((a, b) => a.routeIdx - b.routeIdx);
+
+  // Pick N-1 overnight stops, evenly distributed
+  const stops: Array<{ name: string; dist: number }> = [];
+  for (let k = 1; k < numDays; k++) {
+    const target = (totalDist * k) / numDays;
+    let best = cabinsWithIdx[0];
+    let bestDiff = Infinity;
+    for (const c of cabinsWithIdx) {
+      const diff = Math.abs(c.cumDistAtIdx - target);
+      if (diff < bestDiff) { bestDiff = diff; best = c; }
+    }
+    if (best) stops.push({ name: best.cabin.name, dist: best.cumDistAtIdx });
+  }
+
+  // Build stage objects
+  const waypoints = [
+    { name: "Startpunkt", dist: 0 },
+    ...stops,
+    { name: "Endepunkt", dist: totalDist },
+  ];
+
+  return waypoints.slice(0, -1).map((wp, i) => {
+    const segDist = waypoints[i + 1].dist - wp.dist;
+    const km = Math.round((segDist / 1000) * 10) / 10;
+    return {
+      day: i + 1,
+      startName: wp.name,
+      endName: waypoints[i + 1].name,
+      distanceKm: km,
+      estimatedHours: Math.round(((segDist / 1000) / 3.5) * 10) / 10,
+      isOvernight: i < waypoints.length - 2,
+    };
+  });
+}
+
+// ─── Small reusable sub-components ───────────────────────────────────────────
+
+function SectionCard({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="mx-4 mt-4 p-5 rounded-2xl"
+      style={{ background: "white", border: "1px solid var(--color-border-default)" }}>
+      {children}
+    </section>
+  );
+}
+
+function SectionTitle({ emoji, title, sub }: { emoji: string; title: string; sub?: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <span>{emoji}</span>
+      <div>
+        <p className="text-sm font-semibold" style={{ color: "var(--color-neutral-600)" }}>{title}</p>
+        {sub && <p className="text-xs" style={{ color: "var(--color-neutral-300)" }}>{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+interface RouteParams { id: string }
+
+export default function TripDetailPage({ params }: { params: Promise<RouteParams> }) {
+  const router = useRouter();
+
+  const [routeParams, setRouteParams] = useState<RouteParams | null>(null);
+  const [trip,    setTrip]    = useState<UtnoTrip | null>(null);
+  const [cabins,  setCabins]  = useState<UtnoCabin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const [startDate, setStartDate] = useState(todayIso);
+  const [groupSize, setGroupSize] = useState(2);
+  const [weather,   setWeather]   = useState<WeatherDay[]>([]);
+  const [daySummaries,        setDaySummaries]        = useState<string[]>([]);
+  const [daySummariesLoading, setDaySummariesLoading] = useState(false);
+  const summaryFetchedForRef = useRef<string | null>(null); // avoid duplicate fetches
+  const [weatherLoading, setWeatherLoading] = useState(false);
+
+  const { clearPacking, setTripInput, setSelectedPlace, openPackingPanel } = useTripStore();
+
+  useEffect(() => { params.then(setRouteParams); }, [params]);
+
+  // Fetch trip + cabins in parallel
+  useEffect(() => {
+    if (!routeParams?.id) return;
+    setLoading(true); setError(null);
+    (async () => {
+      try {
+        const [tripRes, cabinRes] = await Promise.all([
+          fetch(`/api/trips/${routeParams.id}`),
+          fetch(`/api/trips/${routeParams.id}/cabins?interval=5000&radius=3000`),
+        ]);
+        if (!tripRes.ok) throw new Error("Fant ikke turen");
+        const tripData: UtnoTrip = await tripRes.json();
+        setTrip(tripData);
+        if (cabinRes.ok) setCabins((await cabinRes.json()).cabins ?? []);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Ukjent feil");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [routeParams?.id]);
+
+  // Fetch 5-day weather for trip start point
+  useEffect(() => {
+    if (!trip?.startPointGeojson?.coordinates) return;
+    setWeatherLoading(true);
+    const [lng, lat] = trip.startPointGeojson.coordinates;
+    fetch(`/api/weather?lat=${lat}&lng=${lng}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((days: WeatherDay[]) => setWeather(days.slice(0, 5)))
+      .catch(() => {})
+      .finally(() => setWeatherLoading(false));
+  }, [trip?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stages = useMemo(() => (trip ? buildItinerary(trip, cabins) : []), [trip, cabins]);
+
+  // Fetch AI day summaries once stages are ready
+  useEffect(() => {
+    if (!trip || stages.length === 0) return;
+    // Use a key so we don't re-fetch when e.g. groupSize changes
+    const key = `${trip.id}-${stages.length}`;
+    if (summaryFetchedForRef.current === key) return;
+    summaryFetchedForRef.current = key;
+
+    setDaySummariesLoading(true);
+    const weatherSummaries = weather.slice(0, stages.length).map((w) => w.summary);
+    fetch("/api/ai/day-summary", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tripName: trip.name,
+        area: trip.areas[0]?.name ?? trip.counties[0]?.name ?? null,
+        grading: trip.grading,
+        stages,
+        weatherSummaries,
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((summaries: string[]) => setDaySummaries(summaries))
+      .catch(() => {}) // summaries are decorative — fail silently
+      .finally(() => setDaySummariesLoading(false));
+  }, [trip?.id, stages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleGeneratePacking = useCallback(() => {
+    if (!trip) return;
+    clearPacking();
+    setTripInput({
+      destinationName: trip.name,
+      startDate,
+      nights: Math.max(0, (trip.durationDays ?? 1) - 1),
+      groupSize,
+      hasKids: false,
+      experience: "intermediate",
+    });
+    const c = trip.startPointGeojson?.coordinates;
+    if (c) setSelectedPlace({ id: String(trip.id), name: trip.name, lat: c[1], lng: c[0], type: "trip" });
+    openPackingPanel();
+  }, [trip, startDate, groupSize, clearPacking, setTripInput, setSelectedPlace, openPackingPanel]);
+
+  // ── Loading / error ──────────────────────────────────────────────────────
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#f8f9fb" }}>
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
+          style={{ borderColor: "var(--color-brand-400)", borderTopColor: "transparent" }} />
+        <p className="text-sm" style={{ color: "var(--color-neutral-400)" }}>Laster tur…</p>
+      </div>
+    </div>
+  );
+
+  if (error || !trip) return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4" style={{ background: "#f8f9fb" }}>
+      <span className="text-4xl">⚠️</span>
+      <p className="text-sm" style={{ color: "var(--color-neutral-500)" }}>{error ?? "Turen ble ikke funnet"}</p>
+      <button onClick={() => router.back()}
+        className="px-4 py-2 rounded-lg text-sm font-medium"
+        style={{ background: "var(--color-brand-500)", color: "white" }}>
+        ← Tilbake
+      </button>
+    </div>
+  );
+
+  const distKm  = trip.distance  ? Math.round((trip.distance  / 1000) * 10) / 10 : null;
+  const elevGain = trip.elevationGain ? Math.round(trip.elevationGain / 10) * 10 : null;
+  const area    = trip.areas[0]?.name ?? trip.counties[0]?.name ?? null;
+
+  return (
+    <div className="min-h-screen pb-10" style={{ background: "#f8f9fb" }}>
+
+      {/* ── Top bar ──────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-20 flex items-center gap-3 px-4 py-3"
+        style={{ background: "white", borderBottom: "1px solid var(--color-border-default)",
+          boxShadow: "0 1px 6px rgba(0,0,0,0.06)" }}>
+        <button onClick={() => router.back()}
+          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100"
+          aria-label="Tilbake">
+          <svg className="w-5 h-5" style={{ color: "var(--color-neutral-500)" }}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-base font-bold truncate" style={{ color: "var(--color-neutral-600)" }}>
+            {trip.name}
+          </h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            {distKm && <span className="text-xs" style={{ color: "var(--color-neutral-400)" }}>{distKm} km</span>}
+            {trip.grading && (
+              <span className="flex items-center gap-1 text-xs" style={{ color: "var(--color-neutral-400)" }}>
+                <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: gradingColor(trip.grading) }} />
+                {gradingLabel(trip.grading)}
+              </span>
+            )}
+            {area && <span className="text-xs" style={{ color: "var(--color-neutral-300)" }}>{area}</span>}
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto">
+
+        {/* ── Map (smaller, rounded) ────────────────────────────────────── */}
+        <div className="mx-4 mt-4 rounded-2xl overflow-hidden shadow-sm"
+          style={{ height: 260, border: "1px solid var(--color-border-default)" }}>
+          <TripMap trip={trip} cabins={cabins} />
+        </div>
+
+        {/* ── Quick stat pills ──────────────────────────────────────────── */}
+        <div className="flex flex-wrap gap-2 px-4 mt-3">
+          {elevGain && (
+            <span className="px-2.5 py-1 rounded-full text-xs font-medium"
+              style={{ background: "white", border: "1px solid var(--color-border-default)", color: "var(--color-neutral-500)" }}>
+              ⬆️ {elevGain} m
+            </span>
+          )}
+          {trip.durationDays && (
+            <span className="px-2.5 py-1 rounded-full text-xs font-medium"
+              style={{ background: "white", border: "1px solid var(--color-border-default)", color: "var(--color-neutral-500)" }}>
+              🗓️ {trip.durationDays} {trip.durationDays === 1 ? "dag" : "dager"}
+            </span>
+          )}
+          {cabins.length > 0 && (
+            <span className="px-2.5 py-1 rounded-full text-xs font-medium"
+              style={{ background: "white", border: "1px solid var(--color-border-default)", color: "var(--color-neutral-500)" }}>
+              🛖 {cabins.length} hytter langs ruten
+            </span>
+          )}
+        </div>
+
+        {/* ── Dagsetapper — F7 / B3 / B6 ───────────────────────────────── */}
+        {stages.length > 0 && (
+          <SectionCard>
+            <SectionTitle emoji="🗺️" title="Dagsetapper"
+              sub={`${stages.length} etappe${stages.length !== 1 ? "r" : ""} · estimert gangtid`} />
+
+            {/* Vertical timeline */}
+            <div>
+              {stages.map((stage, idx) => (
+                <div key={stage.day} className="flex gap-3">
+                  {/* Spine column */}
+                  <div className="flex flex-col items-center" style={{ width: 24, flexShrink: 0 }}>
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold z-10"
+                      style={{
+                        background: idx === 0 ? "#0f8402" : "var(--color-brand-500)",
+                        color: "white", flexShrink: 0,
+                      }}>
+                      {idx === 0 ? "S" : idx}
+                    </div>
+                    {/* Line down to next */}
+                    <div className="flex-1 w-px my-1"
+                      style={{ background: "var(--color-border-default)", minHeight: 36 }} />
+                  </div>
+
+                  {/* Stage content */}
+                  <div className="flex-1 pb-3">
+                    <p className="text-xs font-semibold mb-1" style={{ color: "var(--color-neutral-300)" }}>
+                      Dag {stage.day}
+                    </p>
+                    <div className="rounded-xl px-3 py-2.5"
+                      style={{ background: "#f8f9fb", border: "1px solid var(--color-border-default)" }}>
+                      <p className="text-sm font-medium mb-1" style={{ color: "var(--color-neutral-600)" }}>
+                        <span className="truncate">{stage.startName}</span>
+                        <span style={{ color: "var(--color-neutral-300)" }}> → </span>
+                        <span className="truncate">{stage.endName}</span>
+                      </p>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <span className="text-xs" style={{ color: "var(--color-neutral-400)" }}>
+                          📏 {stage.distanceKm} km
+                        </span>
+                        <span className="text-xs" style={{ color: "var(--color-neutral-400)" }}>
+                          ⏱️ ca. {stage.estimatedHours} t
+                        </span>
+                        {stage.isOvernight && (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                            style={{ background: "var(--color-brand-100)", color: "var(--color-brand-500)" }}>
+                            🛏 overnatting
+                          </span>
+                        )}
+                      </div>
+
+                      {/* AI day summary */}
+                      {daySummariesLoading ? (
+                        <div className="mt-2 h-3 rounded animate-pulse"
+                          style={{ background: "var(--color-neutral-100)", width: "85%" }} />
+                      ) : daySummaries[idx] ? (
+                        <p className="mt-2 text-xs leading-relaxed"
+                          style={{ color: "var(--color-neutral-400)", fontStyle: "italic" }}>
+                          {daySummaries[idx]}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Final destination marker */}
+              <div className="flex items-center gap-3">
+                <div className="w-6 flex justify-center">
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
+                    style={{ background: "#bf0000", color: "white" }}>
+                    M
+                  </div>
+                </div>
+                <p className="text-sm font-medium" style={{ color: "var(--color-neutral-500)" }}>
+                  {stages[stages.length - 1]?.endName ?? "Endepunkt"}
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
+        {/* ── Værvarselet — 5 dager ─────────────────────────────────────── */}
+        <SectionCard>
+          <SectionTitle emoji="🌤️" title="Værvarselet" sub="5 dager fra startpunktet" />
+          {weatherLoading ? (
+            <div className="flex items-center gap-2 py-3">
+              <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
+                style={{ borderColor: "var(--color-brand-400)", borderTopColor: "transparent" }} />
+              <span className="text-xs" style={{ color: "var(--color-neutral-400)" }}>Henter værvarselet…</span>
+            </div>
+          ) : weather.length > 0 ? (
+            <WeatherForecast days={weather} />
+          ) : (
+            <p className="text-xs py-2" style={{ color: "var(--color-neutral-300)" }}>
+              Ingen værdata tilgjengelig for dette området.
+            </p>
+          )}
+        </SectionCard>
+
+        {/* ── Planlegging ───────────────────────────────────────────────── */}
+        <SectionCard>
+          <SectionTitle emoji="📋" title="Planlegg turen" />
+
+          <div className="mb-4">
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1.5"
+              style={{ color: "var(--color-neutral-400)" }}>Startdato</p>
+            <input type="date" value={startDate} min={todayIso()}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2"
+              style={{
+                borderColor: "var(--color-border-default)", color: "var(--color-neutral-600)",
+                // @ts-expect-error css var
+                "--tw-ring-color": "var(--color-brand-400)",
+              }} />
+          </div>
+
+          <div className="mb-5">
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1.5"
+              style={{ color: "var(--color-neutral-400)" }}>Antall deltakere</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                <button key={n} onClick={() => setGroupSize(n)}
+                  className="w-9 h-9 rounded-full text-sm font-medium transition-all"
+                  style={{
+                    background: groupSize === n ? "var(--color-brand-500)" : "var(--color-neutral-100)",
+                    color: groupSize === n ? "white" : "var(--color-neutral-500)",
+                  }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={handleGeneratePacking}
+            className="w-full py-3 rounded-xl text-sm font-semibold hover:opacity-90 active:scale-[0.98]"
+            style={{ background: "var(--color-brand-500)", color: "white" }}>
+            Generer pakkeliste →
+          </button>
+          <p className="text-center text-xs mt-2" style={{ color: "var(--color-neutral-300)" }}>
+            AI lager pakkeliste basert på ruten og antall deltakere
+          </p>
+        </SectionCard>
+
+      </div>
+
+      <PackingListPanel />
+    </div>
+  );
+}

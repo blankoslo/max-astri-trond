@@ -111,6 +111,8 @@ export interface TripSearchParams {
   maxDistance?: number;
   /** Maximum duration in hours */
   maxDurationHours?: number;
+  /** Minimum duration in days — use to filter for multi-day trips (≥ 1) */
+  minDurationDays?: number;
   /** Number of results per page (default: 20, max: 100) */
   limit?: number;
   /** Cursor from a previous response's nextCursor for pagination */
@@ -123,7 +125,7 @@ export interface TripSearchParams {
  * Search trips with optional area, grading, activity type, and distance filters.
  */
 export async function searchTrips(params: TripSearchParams = {}): Promise<UtnoTripsResult> {
-  const { areaId, grading, activityType, minDistance, maxDistance, maxDurationHours, limit = 20, after } = params;
+  const { areaId, grading, activityType, minDistance, maxDistance, maxDurationHours, minDurationDays, limit = 20, after } = params;
 
   // Build filter object
   const filter: Record<string, unknown> = {
@@ -140,6 +142,9 @@ export async function searchTrips(params: TripSearchParams = {}): Promise<UtnoTr
   }
   if (maxDurationHours != null) {
     filter.durationHours = { lte: maxDurationHours };
+  }
+  if (minDurationDays != null) {
+    filter.durationDays = { gte: minDurationDays };
   }
 
   const paging: Record<string, unknown> = { first: Math.min(limit, 100) };
@@ -280,6 +285,34 @@ export interface CabinsAlongRouteParams {
   searchRadiusMetres?: number;
   /** Concurrency limit for parallel GQL requests (default: 5) */
   concurrency?: number;
+}
+
+export interface CabinsNearParams {
+  lng: number;
+  lat: number;
+  radiusMetres?: number;
+}
+
+export interface CabinsNearResult {
+  distance: number;
+  cabin: UtnoCabin;
+}
+
+/**
+ * Find cabins within `radiusMetres` of a GPS coordinate, ordered by distance.
+ */
+export async function cabinsNear(params: CabinsNearParams): Promise<CabinsNearResult[]> {
+  const { lng, lat, radiusMetres = 10_000 } = params;
+  const data = await gql<{ cabinsNear: { distance: number; cabin: UtnoCabin }[] }>(
+    `query CabinsNear($input: FindNearInput!) {
+      cabinsNear(input: $input) {
+        distance
+        cabin { ${CABIN_FIELDS} }
+      }
+    }`,
+    { input: { coordinates: [lng, lat], maxDistance: radiusMetres } }
+  );
+  return data.cabinsNear;
 }
 
 /**
