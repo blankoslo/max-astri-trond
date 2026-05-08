@@ -3,7 +3,6 @@ interface WeatherData {
   temperature: {
     min: number;
     max: number;
-    current: number;
   };
   precipitation: number; // mm
   windSpeed: number; // m/s
@@ -98,8 +97,9 @@ class WeatherService {
       const data: MetNoResponse = await response.json();
       return this.transformMetNoResponse(data, { lat: roundedLat, lon: roundedLon });
     } catch (error) {
-      console.error('Error fetching weather data:', error);
-      throw new Error('Failed to fetch weather data');
+      throw new Error(`Failed to fetch weather data: ${error instanceof Error ? error.message : 'Unknown error'}`, {
+        cause: error
+      });
     }
   }
 
@@ -120,9 +120,10 @@ class WeatherService {
     // Transform to daily weather data
     const daily: WeatherData[] = Array.from(dailyData.entries()).map(([date, entries]) => {
       const temperatures = entries.map(e => e.data.instant.details.air_temperature);
+      // Calculate daily precipitation using only 1-hour forecasts to avoid double counting
       const precipitations = entries
-        .map(e => e.data.next_1_hours?.details.precipitation_amount || e.data.next_6_hours?.details.precipitation_amount || 0)
-        .filter(p => p > 0);
+        .filter(e => e.data.next_1_hours?.details.precipitation_amount !== undefined)
+        .map(e => e.data.next_1_hours!.details.precipitation_amount);
       
       const windSpeeds = entries.map(e => e.data.instant.details.wind_speed);
       const windDirections = entries.map(e => e.data.instant.details.wind_from_direction);
@@ -144,11 +145,10 @@ class WeatherService {
         temperature: {
           min: Math.min(...temperatures),
           max: Math.max(...temperatures),
-          current: temperatures[0] || 0,
         },
         precipitation: precipitations.reduce((sum, p) => sum + p, 0),
         windSpeed: windSpeeds.reduce((sum, w) => sum + w, 0) / windSpeeds.length,
-        windDirection: windDirections.reduce((sum, w) => sum + w, 0) / windDirections.length,
+        windDirection: this.calculateCircularMean(windDirections),
         symbol,
         humidity: humidities.reduce((sum, h) => sum + h, 0) / humidities.length,
       };
@@ -159,6 +159,27 @@ class WeatherService {
       daily: daily.slice(0, 7), // Limit to 7 days
       lastUpdated: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Calculate circular mean for wind direction (handles 0°/360° wrap)
+   */
+  private calculateCircularMean(directions: number[]): number {
+    if (directions.length === 0) return 0;
+    
+    const radians = directions.map(deg => deg * Math.PI / 180);
+    const sinSum = radians.reduce((sum, rad) => sum + Math.sin(rad), 0);
+    const cosSum = radians.reduce((sum, rad) => sum + Math.cos(rad), 0);
+    
+    const meanRadian = Math.atan2(sinSum / directions.length, cosSum / directions.length);
+    let meanDegrees = meanRadian * 180 / Math.PI;
+    
+    // Normalize to 0-360 range
+    if (meanDegrees < 0) {
+      meanDegrees += 360;
+    }
+    
+    return Math.round(meanDegrees);
   }
 }
 

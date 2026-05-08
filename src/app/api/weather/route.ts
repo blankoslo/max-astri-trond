@@ -15,9 +15,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const latNum = parseFloat(lat);
-  const lonNum = parseFloat(lon);
-  const altitudeNum = altitude ? parseFloat(altitude) : undefined;
+  // Strict numeric validation to avoid accepting partial numbers like "59.91abc"
+  const numericRegex = /^-?\d*\.?\d+$/;
+  
+  if (!numericRegex.test(lat) || !numericRegex.test(lon)) {
+    return NextResponse.json(
+      { error: 'Invalid coordinates: lat and lon must be valid numbers' },
+      { status: 400 }
+    );
+  }
+  
+  const latNum = Number(lat);
+  const lonNum = Number(lon);
+  const altitudeNum = altitude && numericRegex.test(altitude) ? Number(altitude) : undefined;
 
   if (isNaN(latNum) || isNaN(lonNum)) {
     return NextResponse.json(
@@ -40,7 +50,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (altitudeNum !== undefined && (isNaN(altitudeNum) || altitudeNum < -500 || altitudeNum > 10000)) {
+  if (altitude && (!numericRegex.test(altitude) || isNaN(altitudeNum!) || altitudeNum! < -500 || altitudeNum! > 10000)) {
     return NextResponse.json(
       { error: 'Invalid altitude: must be a number between -500 and 10000 meters' },
       { status: 400 }
