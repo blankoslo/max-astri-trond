@@ -55,6 +55,7 @@ export async function GET(request: Request) {
   const minDistance = searchParams.get("minDistance") ? Number(searchParams.get("minDistance")) : undefined;
   const maxDistance = searchParams.get("maxDistance") ? Number(searchParams.get("maxDistance")) : undefined;
   const maxHours = searchParams.get("maxHours") ? Number(searchParams.get("maxHours")) : undefined;
+  const minDays = searchParams.get("minDays") ? Number(searchParams.get("minDays")) : undefined;
   const limit = searchParams.get("limit") ? Math.min(Number(searchParams.get("limit")), 100) : 20;
   const after = searchParams.get("after") ?? undefined;
 
@@ -126,6 +127,7 @@ export async function GET(request: Request) {
       minDistance,
       maxDistance,
       maxDurationHours: maxHours,
+      minDurationDays: minDays,
       limit,
       after,
     });

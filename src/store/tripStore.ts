@@ -1,12 +1,30 @@
 "use client";
 
 import { create } from "zustand";
-import type { Place, WeatherDay, PackingItem, TripInput } from "@/types";
+import type { Place, WeatherDay, PackingItem, TripInput, UtnoTrip, UtnoCabin } from "@/types";
 
 interface TripStore {
   // ── Selected location ─────────────────────────────────────────────────────
   selectedPlace: Place | null;
   setSelectedPlace: (place: Place | null) => void;
+
+  // ── Selected trip (shown as route on map) ─────────────────────────────────
+  selectedTrip: UtnoTrip | null;
+  setSelectedTrip: (trip: UtnoTrip | null) => void;
+
+  // ── Cabins along the selected trip route ──────────────────────────────────
+  cabinsAlongRoute: UtnoCabin[];
+  cabinsLoading: boolean;
+  setCabinsAlongRoute: (cabins: UtnoCabin[]) => void;
+  setCabinsLoading: (v: boolean) => void;
+
+  // ── "Show all cabins" map toggle ──────────────────────────────────────────
+  showAllCabins: boolean;
+  setShowAllCabins: (v: boolean) => void;
+  allCabins: UtnoCabin[];
+  allCabinsLoading: boolean;
+  setAllCabins: (cabins: UtnoCabin[]) => void;
+  setAllCabinsLoading: (v: boolean) => void;
 
   // Map fly-to trigger (set lat/lng to make the map pan there)
   mapTarget: { lat: number; lng: number; zoom?: number } | null;
@@ -24,6 +42,12 @@ interface TripStore {
   setWeather: (days: WeatherDay[] | null) => void;
   setWeatherLoading: (v: boolean) => void;
   setWeatherError: (msg: string | null) => void;
+
+  // ── Planning panel ────────────────────────────────────────────────────────
+  planningTrip: UtnoTrip | null;
+  planningPanelOpen: boolean;
+  openPlanningPanel: (trip: UtnoTrip) => void;
+  closePlanningPanel: () => void;
 
   // ── Packing list panel ────────────────────────────────────────────────────
   packingOpen: boolean;
@@ -49,6 +73,24 @@ export const useTripStore = create<TripStore>((set) => ({
   setSelectedPlace: (place) =>
     set({ selectedPlace: place, sidebarOpen: !!place }),
 
+  // ── selected trip ─────────────────────────────────────────────────────────
+  selectedTrip: null,
+  setSelectedTrip: (trip) => set({ selectedTrip: trip }),
+
+  // ── cabins along route ────────────────────────────────────────────────────
+  cabinsAlongRoute: [],
+  cabinsLoading: false,
+  setCabinsAlongRoute: (cabins) => set({ cabinsAlongRoute: cabins }),
+  setCabinsLoading: (v) => set({ cabinsLoading: v }),
+
+  // ── all cabins toggle ─────────────────────────────────────────────────────
+  showAllCabins: false,
+  setShowAllCabins: (v) => set({ showAllCabins: v, allCabins: v ? [] : [] }),
+  allCabins: [],
+  allCabinsLoading: false,
+  setAllCabins: (cabins) => set({ allCabins: cabins }),
+  setAllCabinsLoading: (v) => set({ allCabinsLoading: v }),
+
   mapTarget: null,
   setMapTarget: (t) => set({ mapTarget: t }),
 
@@ -64,6 +106,12 @@ export const useTripStore = create<TripStore>((set) => ({
   setWeather: (days) => set({ weather: days }),
   setWeatherLoading: (v) => set({ weatherLoading: v }),
   setWeatherError: (msg) => set({ weatherError: msg }),
+
+  // ── planning panel ────────────────────────────────────────────────────────
+  planningTrip: null,
+  planningPanelOpen: false,
+  openPlanningPanel: (trip) => set({ planningTrip: trip, planningPanelOpen: true }),
+  closePlanningPanel: () => set({ planningPanelOpen: false, planningTrip: null }),
 
   // ── packing ───────────────────────────────────────────────────────────────
   packingOpen: false,
