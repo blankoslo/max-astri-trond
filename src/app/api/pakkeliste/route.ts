@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { aiPackingListService, PackingListRequest } from '@/services/ai-pakkeliste';
+import { aiPackingListService, PackingListRequest } from '@/services/ai-pakkeliste-simple';
 // TODO: Integrate with weather service when merging branches
 // import { weatherService } from '@/services/weather';
 
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
       }
     }, {
       headers: {
-        'Cache-Control': 's-maxage=1800, stale-while-revalidate=3600', // Cache for 30 min, serve stale for 1 hour
+        'Cache-Control': 's-maxage=7200, stale-while-revalidate=14400', // Cache for 2 hours, serve stale for 4 hours
       },
     });
 
