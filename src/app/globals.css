@@ -45,8 +45,8 @@
   --color-border-disabled: #a6a6a6;
 
   /* Typography */
-  --font-family-primary: 'Inter', sans-serif;
-  --font-family-secondary: 'Source Serif 4', serif;
+  --font-family-primary: var(--font-geist-sans), sans-serif;
+  --font-family-secondary: var(--font-geist-mono), monospace;
   --font-weight-regular: 400;
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
