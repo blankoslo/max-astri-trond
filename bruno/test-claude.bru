@@ -1,0 +1,29 @@
+meta {
+  name: Test Claude API
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/test-claude
+  body: none
+  auth: none
+}
+
+tests {
+  test("Status should be 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("Should return success", function() {
+    expect(res.getBody().success).to.equal(true);
+  });
+
+  test("Should return Norwegian greeting", function() {
+    expect(res.getBody().message).to.include('Hei');
+  });
+
+  test("Should specify model used", function() {
+    expect(res.getBody().model).to.be.a('string');
+  });
+}

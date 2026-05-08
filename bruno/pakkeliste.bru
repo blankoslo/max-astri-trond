@@ -1,0 +1,57 @@
+meta {
+  name: AI Pakkeliste Generator
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/pakkeliste
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "groupSize": 3,
+    "duration": 4,
+    "activity": "hiking",
+    "experienceLevel": "intermediate",
+    "season": "summer",
+    "location": {
+      "lat": 61.236,
+      "lon": 8.127,
+      "altitude": 1200
+    },
+    "accommodationType": "tent"
+  }
+}
+
+tests {
+  test("Status should be 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("Should return items array", function() {
+    expect(res.getBody().items).to.be.an('array');
+  });
+
+  test("Should have categories", function() {
+    expect(res.getBody().categories).to.be.an('array');
+  });
+
+  test("Items should have required fields", function() {
+    const firstItem = res.getBody().items[0];
+    expect(firstItem).to.have.property('category');
+    expect(firstItem).to.have.property('name');
+    expect(firstItem).to.have.property('quantity');
+    expect(firstItem).to.have.property('perPerson');
+    expect(firstItem).to.have.property('priority');
+    expect(firstItem).to.have.property('reason');
+  });
+
+  test("Should include metadata", function() {
+    expect(res.getBody().metadata).to.be.an('object');
+    expect(res.getBody().metadata).to.have.property('generatedAt');
+    expect(res.getBody().metadata).to.have.property('location');
+  });
+}

@@ -1,0 +1,37 @@
+meta {
+  name: Weather Forecast
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/weather?lat=59.93&lon=10.72&altitude=90
+  body: none
+  auth: none
+}
+
+tests {
+  test("Status should be 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("Should return location", function() {
+    expect(res.getBody().location).to.be.an('object');
+    expect(res.getBody().location).to.have.property('lat');
+    expect(res.getBody().location).to.have.property('lon');
+  });
+
+  test("Should return daily forecasts", function() {
+    expect(res.getBody().daily).to.be.an('array');
+    expect(res.getBody().daily.length).to.be.greaterThan(0);
+  });
+
+  test("Daily forecast should have weather data", function() {
+    const firstDay = res.getBody().daily[0];
+    expect(firstDay).to.have.property('date');
+    expect(firstDay).to.have.property('temperature');
+    expect(firstDay).to.have.property('precipitation');
+    expect(firstDay).to.have.property('windSpeed');
+    expect(firstDay).to.have.property('symbol');
+  });
+}
