@@ -155,19 +155,12 @@
   --color-foreground: var(--foreground);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 html,
 body {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: var(--background);
+  background: #f8f9fb;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }

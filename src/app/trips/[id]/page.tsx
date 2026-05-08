@@ -7,6 +7,17 @@ import type { UtnoTrip, UtnoCabin, WeatherDay } from "@/types";
 import { useTripStore } from "@/store/tripStore";
 import WeatherForecast from "@/components/weather/WeatherForecast";
 import PackingListPanel from "@/components/packing/PackingListPanel";
+import OfflineDownloadButton from "@/components/offline/OfflineDownloadButton";
+import InviteModal from "@/components/invite/InviteModal";
+import {
+  type Participant,
+  getParticipants,
+  addParticipant,
+  hasJoinedLocally,
+  getMyParticipantId,
+  leaveTrip,
+} from "@/lib/participants";
+import { supabase } from "@/lib/supabase";
 
 const TripMap = dynamic(() => import("@/components/trip-detail/TripMap"), {
   ssr: false,
@@ -187,6 +198,13 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
   const summaryFetchedForRef = useRef<string | null>(null); // avoid duplicate fetches
   const [weatherLoading, setWeatherLoading] = useState(false);
 
+  // ── Invite / participants ────────────────────────────────────────────────
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [alreadyJoined, setAlreadyJoined] = useState(false);
+  const [joinName, setJoinName] = useState("");
+  const [joinError, setJoinError] = useState("");
+
   const { clearPacking, setTripInput, setSelectedPlace, openPackingPanel } = useTripStore();
 
   useEffect(() => { params.then(setRouteParams); }, [params]);
@@ -218,12 +236,47 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
     if (!trip?.startPointGeojson?.coordinates) return;
     setWeatherLoading(true);
     const [lng, lat] = trip.startPointGeojson.coordinates;
-    fetch(`/api/weather?lat=${lat}&lng=${lng}`)
+    fetch(`/api/weather?lat=${lat}&lon=${lng}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((days: WeatherDay[]) => setWeather(days.slice(0, 5)))
       .catch(() => {})
       .finally(() => setWeatherLoading(false));
   }, [trip?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load participants from Supabase + subscribe to real-time changes
+  useEffect(() => {
+    if (!routeParams?.id) return;
+    const tripId = routeParams.id;
+
+    // Initial load
+    getParticipants(tripId).then((rows) => {
+      setParticipants(rows);
+      setAlreadyJoined(hasJoinedLocally(tripId));
+    });
+
+    // Real-time subscription — fires on INSERT / UPDATE / DELETE
+    const channel = supabase
+      .channel(`participants:${tripId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "participants",
+          filter: `trip_id=eq.${tripId}`,
+        },
+        () => {
+          // Re-fetch the full list on any change
+          getParticipants(tripId).then((rows) => {
+            setParticipants(rows);
+            setAlreadyJoined(hasJoinedLocally(tripId));
+          });
+        },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [routeParams?.id]);
 
   const stages = useMemo(() => (trip ? buildItinerary(trip, cabins) : []), [trip, cabins]);
 
@@ -269,6 +322,28 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
     if (c) setSelectedPlace({ id: String(trip.id), name: trip.name, lat: c[1], lng: c[0], type: "trip" });
     openPackingPanel();
   }, [trip, startDate, groupSize, clearPacking, setTripInput, setSelectedPlace, openPackingPanel]);
+
+  const handleJoin = useCallback(async () => {
+    if (!routeParams?.id) return;
+    const name = joinName.trim();
+    if (!name) { setJoinError("Skriv inn navnet ditt"); return; }
+    try {
+      await addParticipant(routeParams.id, name);
+      // Real-time subscription will refresh the list automatically
+      setAlreadyJoined(true);
+      setJoinName("");
+      setJoinError("");
+    } catch {
+      setJoinError("Noe gikk galt. Prøv igjen.");
+    }
+  }, [routeParams?.id, joinName]);
+
+  const handleLeave = useCallback(async () => {
+    if (!routeParams?.id) return;
+    await leaveTrip(routeParams.id);
+    setAlreadyJoined(false);
+    // Real-time subscription will refresh the list automatically
+  }, [routeParams?.id]);
 
   // ── Loading / error ──────────────────────────────────────────────────────
   if (loading) return (
@@ -328,6 +403,19 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
             {area && <span className="text-xs" style={{ color: "var(--color-neutral-300)" }}>{area}</span>}
           </div>
         </div>
+
+        {/* Invite button */}
+        <button
+          onClick={() => setShowInviteModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all hover:opacity-85"
+          style={{ background: "var(--color-brand-500)", color: "white" }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+          </svg>
+          Inviter
+        </button>
       </header>
 
       <div className="max-w-2xl mx-auto">
@@ -442,6 +530,95 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
           </SectionCard>
         )}
 
+        {/* ── Deltakere ─────────────────────────────────────────────────── */}
+        <SectionCard>
+          <SectionTitle
+            emoji="👥"
+            title="Deltakere"
+            sub={participants.length === 0 ? "Ingen har meldt seg på ennå" : `${participants.length} påmeldt`}
+          />
+
+          {/* Participant list */}
+          {participants.length > 0 && (
+            <ul className="flex flex-col gap-2 mb-4">
+              {participants.map((p) => {
+                const isMe = routeParams ? getMyParticipantId(routeParams.id) === p.id : false;
+                return (
+                  <li key={p.id} className="flex items-center gap-2.5">
+                    {/* Avatar */}
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                      style={{ background: "var(--color-brand-100)", color: "var(--color-brand-500)" }}
+                    >
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-sm flex-1" style={{ color: "var(--color-neutral-600)" }}>
+                      {p.name}
+                      {isMe && (
+                        <span className="ml-1.5 text-xs font-medium"
+                          style={{ color: "var(--color-neutral-300)" }}>(deg)</span>
+                      )}
+                    </span>
+                    <span className="text-xs" style={{ color: "var(--color-neutral-300)" }}>
+                      {new Date(p.joined_at).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {/* Join / Leave */}
+          {alreadyJoined ? (
+            <div className="flex items-center justify-between py-2 px-3 rounded-xl"
+              style={{ background: "var(--color-success-light)" }}>
+              <span className="text-xs font-medium" style={{ color: "var(--color-success)" }}>
+                ✓ Du er påmeldt denne turen
+              </span>
+              <button
+                onClick={handleLeave}
+                className="text-xs font-medium hover:underline"
+                style={{ color: "var(--color-neutral-400)" }}
+              >
+                Meld av
+              </button>
+            </div>
+          ) : (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-1.5"
+                style={{ color: "var(--color-neutral-400)" }}>
+                Bli med på turen
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Ditt navn"
+                  value={joinName}
+                  onChange={(e) => { setJoinName(e.target.value); setJoinError(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }}
+                  className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm border focus:outline-none focus:ring-2"
+                  style={{
+                    borderColor: joinError ? "var(--color-error)" : "var(--color-border-default)",
+                    color: "var(--color-neutral-600)",
+                    // @ts-expect-error css var
+                    "--tw-ring-color": "var(--color-brand-400)",
+                  }}
+                />
+                <button
+                  onClick={handleJoin}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+                  style={{ background: "var(--color-brand-500)", color: "white" }}
+                >
+                  Bli med
+                </button>
+              </div>
+              {joinError && (
+                <p className="text-xs mt-1" style={{ color: "var(--color-error)" }}>{joinError}</p>
+              )}
+            </div>
+          )}
+        </SectionCard>
+
         {/* ── Værvarselet — 5 dager ─────────────────────────────────────── */}
         <SectionCard>
           <SectionTitle emoji="🌤️" title="Værvarselet" sub="5 dager fra startpunktet" />
@@ -504,9 +681,34 @@ export default function TripDetailPage({ params }: { params: Promise<RouteParams
           </p>
         </SectionCard>
 
+        {/* ── Offline nedlasting — F8 / T1 ─────────────────────────────── */}
+        {stages.length > 0 && (
+          <SectionCard>
+            <SectionTitle
+              emoji="📵"
+              title="Offline tilgang"
+              sub="Last ned kart og rute for bruk uten mobildekning"
+            />
+            <OfflineDownloadButton
+              tripId={String(trip.id)}
+              trip={trip}
+              cabins={cabins}
+              stages={stages}
+            />
+          </SectionCard>
+        )}
+
       </div>
 
       <PackingListPanel />
+
+      {showInviteModal && (
+        <InviteModal
+          tripId={trip.id}
+          tripName={trip.name}
+          onClose={() => setShowInviteModal(false)}
+        />
+      )}
     </div>
   );
 }

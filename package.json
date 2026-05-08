@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.76",
+    "@supabase/supabase-js": "^2.105.3",
     "ai": "^6.0.176",
     "lucide-react": "^1.14.0",
     "maplibre-gl": "^5.24.0",
